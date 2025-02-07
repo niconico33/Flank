@@ -7,7 +7,7 @@ import { FlankGame, GameState, Block } from '@/game/gameLogic';
 import GameBoard from './GameBoard';
 import { BoardProps } from 'boardgame.io/react';
 
-function GameBoardWrapper(props: BoardProps) {
+function GameBoardWrapper(props: BoardProps & { isGameStarted: boolean; setIsGameStarted: (started: boolean) => void }) {
   return (
     <GameBoard
       G={props.G}
@@ -15,6 +15,8 @@ function GameBoardWrapper(props: BoardProps) {
       moves={props.moves}
       playerID={props.playerID}
       isActive={props.isActive}
+      isGameStarted={props.isGameStarted}
+      setIsGameStarted={props.setIsGameStarted}
     />
   );
 }
@@ -23,6 +25,7 @@ export default function SinglePlayerGameClient() {
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [moveCount, setMoveCount] = useState<number>(0);
   const [previewState, setPreviewState] = useState<GameState | null>(null);
+  const [isGameStarted, setIsGameStarted] = useState(false);
   const [movesBuffer, setMovesBuffer] = useState<Array<{
     type: 'pivot' | 'step';
     direction?: 'left' | 'right' | 'up' | 'down';
@@ -30,7 +33,9 @@ export default function SinglePlayerGameClient() {
 
   const FlankSinglePlayer = Client({
     game: FlankGame,
-    board: GameBoardWrapper,
+    board: (props: BoardProps) => (
+      <GameBoardWrapper {...props} isGameStarted={isGameStarted} setIsGameStarted={setIsGameStarted} />
+    ),
     debug: false,
     numPlayers: 2,
     ai: {
@@ -204,6 +209,14 @@ export default function SinglePlayerGameClient() {
   // Set up keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isGameStarted) {
+        if (e.key === 'Enter') {
+          setIsGameStarted(true);
+          return;
+        }
+        return;
+      }
+
       const state = getStoreState();
       if (!state || state.ctx.currentPlayer !== '0') return;
 
@@ -240,7 +253,7 @@ export default function SinglePlayerGameClient() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [getStoreState, pivotPreview, stepPreview, toggleBlock, resetPreview, confirmMoves]);
+  }, [getStoreState, pivotPreview, stepPreview, toggleBlock, resetPreview, confirmMoves, isGameStarted]);
 
   return (
     <div className="flex flex-col justify-center items-center p-4">
