@@ -1,4 +1,4 @@
-import { Game } from 'boardgame.io/core'
+import { Game, Ctx } from 'boardgame.io'
 
 export interface Block {
   x: number
@@ -18,11 +18,10 @@ function getDefaultSetup(numPlayers: number) {
   // You can expand this for more players (3 or 4) as needed.
   const defaultState: GameState = {
     boardSize: 8,
-    blocks: {},
-  }
-
-  for (let p = 0; p < numPlayers; p++) {
-    defaultState.blocks[`${p}`] = []
+    blocks: {
+      '0': [], // Initialize with empty array for player 0
+      '1': [], // Initialize with empty array for player 1
+    },
   }
 
   // Player 0's blocks (top side)
@@ -145,9 +144,8 @@ function resolveCollision(
 
 export const FlankGame: Game<GameState> = {
   name: 'flank',
-  setup: (ctx) => {
-    const numPlayers = ctx.numPlayers
-    return getDefaultSetup(numPlayers)
+  setup: ({ ctx }) => {
+    return getDefaultSetup(ctx.numPlayers)
   },
 
   // Each turn: up to 3 moves
@@ -157,7 +155,13 @@ export const FlankGame: Game<GameState> = {
 
   moves: {
     pivotBlock: {
-      move: (G, ctx, { playerID, blockIndex, directionChange }) => {
+      move: ({ G, ctx, playerID, blockIndex, directionChange }: {
+        G: GameState;
+        ctx: Ctx;
+        playerID: string;
+        blockIndex: number;
+        directionChange: 'left' | 'right';
+      }) => {
         const block = G.blocks[playerID][blockIndex]
         if (!block) return
         block.direction = pivotDirection(block.direction, directionChange)
@@ -165,7 +169,14 @@ export const FlankGame: Game<GameState> = {
     },
 
     stepBlock: {
-      move: (G, ctx, { playerID, blockIndex, targetX, targetY }) => {
+      move: ({ G, ctx, playerID, blockIndex, targetX, targetY }: {
+        G: GameState;
+        ctx: Ctx;
+        playerID: string;
+        blockIndex: number;
+        targetX: number;
+        targetY: number;
+      }) => {
         const block = G.blocks[playerID][blockIndex]
         if (!block) return
 
@@ -201,9 +212,16 @@ export const FlankGame: Game<GameState> = {
         }
       },
     },
+
+    // Added endTurn move for AI usage
+    endTurn: {
+      move: ({ G, ctx }: { G: GameState; ctx: Ctx }) => {
+        ctx.events?.endTurn();
+      },
+    },
   },
 
-  endIf: (G, ctx) => {
+  endIf: ({ G }: { G: GameState }) => {
     // If only one player (or none) has blocks left
     let alivePlayers = Object.keys(G.blocks).filter((pID) => G.blocks[pID].length > 0)
     if (alivePlayers.length === 1) {
