@@ -18,22 +18,22 @@ function getDefaultSetup(numPlayers: number) {
   const defaultState: GameState = {
     boardSize: 8,
     blocks: {
-      'A': [], // Player A's blocks
-      'B': [], // Player B's blocks
+      '0': [], // Player 0's blocks (human)
+      '1': [], // Player 1's blocks (AI)
     },
   }
 
-  // Player A's blocks at top side
-  defaultState.blocks['A'].push({ x: 2, y: 0, direction: 'down' })
-  defaultState.blocks['A'].push({ x: 3, y: 0, direction: 'down' })
-  defaultState.blocks['A'].push({ x: 4, y: 0, direction: 'down' })
-  defaultState.blocks['A'].push({ x: 5, y: 0, direction: 'down' })
+  // Player 0's blocks at top side
+  defaultState.blocks['0'].push({ x: 2, y: 0, direction: 'down' })
+  defaultState.blocks['0'].push({ x: 3, y: 0, direction: 'down' })
+  defaultState.blocks['0'].push({ x: 4, y: 0, direction: 'down' })
+  defaultState.blocks['0'].push({ x: 5, y: 0, direction: 'down' })
 
-  // Player B's blocks at bottom side
-  defaultState.blocks['B'].push({ x: 2, y: 7, direction: 'up' })
-  defaultState.blocks['B'].push({ x: 3, y: 7, direction: 'up' })
-  defaultState.blocks['B'].push({ x: 4, y: 7, direction: 'up' })
-  defaultState.blocks['B'].push({ x: 5, y: 7, direction: 'up' })
+  // Player 1's blocks at bottom side
+  defaultState.blocks['1'].push({ x: 2, y: 7, direction: 'up' })
+  defaultState.blocks['1'].push({ x: 3, y: 7, direction: 'up' })
+  defaultState.blocks['1'].push({ x: 4, y: 7, direction: 'up' })
+  defaultState.blocks['1'].push({ x: 5, y: 7, direction: 'up' })
 
   return defaultState
 }
@@ -148,7 +148,7 @@ export const FlankGame: Game<GameState> = {
     order: {
       first: () => 0,
       next: (context: FnContext<GameState>) => {
-        const playerOrder = ['A', 'B'];
+        const playerOrder = ['0', '1'];
         const currentIdx = playerOrder.indexOf(context.ctx.currentPlayer);
         return (currentIdx + 1) % playerOrder.length;
       }
@@ -156,17 +156,19 @@ export const FlankGame: Game<GameState> = {
   },
 
   moves: {
-    pivotBlock: (context, blockIndex: number, directionChange: 'left' | 'right') => {
-      const { G, ctx, playerID } = context;
+    pivotBlock: (context, args: { playerID: string; blockIndex: number; direction: 'left' | 'right' }) => {
+      const { G } = context;
+      const { playerID, blockIndex, direction } = args;
       if (!playerID) return;
       
       const block = G.blocks[playerID][blockIndex];
       if (!block) return;
-      block.direction = pivotDirection(block.direction, directionChange);
+      block.direction = pivotDirection(block.direction, direction);
     },
 
-    stepBlock: (context, blockIndex: number, targetX: number, targetY: number) => {
-      const { G, ctx, playerID } = context;
+    stepBlock: (context, args: { playerID: string; blockIndex: number; targetX: number; targetY: number }) => {
+      const { G } = context;
+      const { playerID, blockIndex, targetX, targetY } = args;
       if (!playerID) return;
 
       const block = G.blocks[playerID][blockIndex];

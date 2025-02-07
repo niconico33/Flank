@@ -52,6 +52,13 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [isGameStarted, setIsGameStarted]);
 
+  // Auto-select first piece when game starts
+  useEffect(() => {
+    if (isGameStarted && isActive && playerID && !selected) {
+      setSelected({ blockIndex: 0, playerID });
+    }
+  }, [isGameStarted, isActive, playerID, selected]);
+
   // Get the current piece label (A1-A4 or B1-B4)
   const getCurrentPieceLabel = () => {
     if (!selected || !playerID) return null;
@@ -119,9 +126,109 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
       }
     } else if (selected) {
       // Attempt to move to the clicked cell
-      moves.stepBlock({ blockIndex: selected.blockIndex, targetX: x, targetY: y });
+      moves.stepBlock({ 
+        playerID, 
+        blockIndex: selected.blockIndex, 
+        targetX: x, 
+        targetY: y 
+      });
     }
   };
+
+  // Handle keyboard controls
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isActive || !playerID || !isGameStarted) return;
+
+      // Prevent scrolling on arrow keys and other game controls
+      if (
+        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'd', 'f', 't', 'Enter'].includes(e.key)
+      ) {
+        e.preventDefault();
+      }
+
+      // If no piece is selected and not pressing 't' or Enter, do nothing
+      if (!selected && !['t', 'Enter'].includes(e.key)) return;
+
+      switch (e.key) {
+        case 'ArrowUp': {
+          const block = blocks[playerID][selected?.blockIndex || 0];
+          if (block) {
+            moves.stepBlock({ 
+              playerID, 
+              blockIndex: selected?.blockIndex || 0, 
+              targetX: block.x, 
+              targetY: block.y - 1 
+            });
+          }
+          break;
+        }
+        case 'ArrowDown': {
+          const block = blocks[playerID][selected?.blockIndex || 0];
+          if (block) {
+            moves.stepBlock({ 
+              playerID, 
+              blockIndex: selected?.blockIndex || 0, 
+              targetX: block.x, 
+              targetY: block.y + 1 
+            });
+          }
+          break;
+        }
+        case 'ArrowLeft': {
+          const block = blocks[playerID][selected?.blockIndex || 0];
+          if (block) {
+            moves.stepBlock({ 
+              playerID, 
+              blockIndex: selected?.blockIndex || 0, 
+              targetX: block.x - 1, 
+              targetY: block.y 
+            });
+          }
+          break;
+        }
+        case 'ArrowRight': {
+          const block = blocks[playerID][selected?.blockIndex || 0];
+          if (block) {
+            moves.stepBlock({ 
+              playerID, 
+              blockIndex: selected?.blockIndex || 0, 
+              targetX: block.x + 1, 
+              targetY: block.y 
+            });
+          }
+          break;
+        }
+        case 'd':
+          moves.pivotBlock({ 
+            playerID, 
+            blockIndex: selected?.blockIndex || 0, 
+            direction: 'left' 
+          });
+          break;
+        case 'f':
+          moves.pivotBlock({ 
+            playerID, 
+            blockIndex: selected?.blockIndex || 0, 
+            direction: 'right' 
+          });
+          break;
+        case 't':
+          toggleNextPiece();
+          break;
+        case 'Enter':
+          if (!isGameStarted) {
+            setIsGameStarted(true);
+          } else {
+            ctx.events?.endTurn();
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isActive, playerID, isGameStarted, selected, blocks, moves, ctx.events, toggleNextPiece]);
 
   return (
     <div className="flex items-start justify-center space-x-8">
@@ -154,8 +261,8 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
                 return (
                   <div
                     key={`${rowIdx}-${colIdx}`}
-                    className={`w-16 h-16 border border-amber-900 flex items-center justify-center ${bgColor} ${colorClass} ${
-                      isSelected ? 'bg-yellow-200' : 'hover:bg-gray-100'
+                    className={`w-16 h-16 border border-amber-900 flex items-center justify-center ${bgColor} ${
+                      isSelected ? 'ring-4 ring-yellow-400 bg-yellow-200' : occupant ? 'hover:ring-2 hover:ring-yellow-400' : ''
                     }`}
                     onClick={() => handleCellClick(colIdx, rowIdx)}
                   >
@@ -189,8 +296,8 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
         
         {/* Current Piece Display */}
         <div className="mb-6 p-3 bg-gray-50 rounded-lg">
-          <h4 className="font-semibold mb-2 text-gray-700">Current Piece</h4>
-          <div className="flex items-center justify-between">
+          <h4 className="font-semibold mb-2 text-gray-700">Selected Piece</h4>
+          <div className="flex items-center justify-between mb-2">
             <span className={`text-2xl font-bold ${selected ? (playerID === '0' ? 'text-blue-500' : 'text-red-500') : 'text-gray-400'}`}>
               {getCurrentPieceLabel() || 'None'}
             </span>
@@ -201,9 +308,12 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
               } transition-colors`}
               disabled={!isActive}
             >
-              Toggle
+              Next (T)
             </button>
           </div>
+          <p className="text-sm text-gray-600">
+            Click on your piece or press T to select different pieces. Selected piece will have a yellow highlight.
+          </p>
         </div>
 
         <div className={`space-y-6 ${!isGameStarted ? 'opacity-75' : ''}`}>
@@ -233,7 +343,7 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
             <div className="flex justify-center space-x-4">
               <div className="text-center">
                 <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300 mb-1">
-                  <span className="font-mono">S</span>
+                  <span className="font-mono">D</span>
                 </div>
                 <p className="text-sm text-gray-600">Rotate Left</p>
               </div>
@@ -253,7 +363,7 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
                 <div className="w-16 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300">
                   <span className="font-mono">T</span>
                 </div>
-                <p className="text-sm text-gray-600">Switch Selected Piece</p>
+                <p className="text-sm text-gray-600">Select Next Piece</p>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="w-16 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300">
