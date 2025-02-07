@@ -12,6 +12,7 @@ export interface GameState {
   blocks: {
     [playerID: string]: Block[]
   }
+  moveCount: number  // Track moves used in current turn
 }
 
 function getDefaultSetup(numPlayers: number) {
@@ -21,6 +22,7 @@ function getDefaultSetup(numPlayers: number) {
       '1': [], // Player 1's blocks (human)
       '2': [], // Player 2's blocks (AI)
     },
+    moveCount: 0
   }
 
   // Player 1's blocks at bottom side
@@ -118,6 +120,128 @@ function resolveCollision(
   return { removedAttacker: true, removedDefender: false };
 }
 
+// Move functions
+const pivotBlock = (context: any, args: { playerID: string; blockIndex: number; direction: 'left' | 'right' }) => {
+  const { G, events } = context
+  const { playerID, blockIndex, direction } = args
+  if (!playerID) return
+  
+  const block = G.blocks[playerID][blockIndex]
+  if (!block) return
+
+  block.direction = pivotDirection(block.direction, direction)
+  G.moveCount++
+
+  // End turn if move limit reached
+  if (G.moveCount >= 3 && events?.endTurn) {
+    events.endTurn()
+  }
+}
+
+const stepBlock = (context: any, args: { playerID: string; blockIndex: number; targetX: number; targetY: number }) => {
+  const { G, events } = context
+  const { playerID, blockIndex, targetX, targetY } = args
+  if (!playerID) return
+
+  const block = G.blocks[playerID][blockIndex]
+  if (!block) return
+
+  // Check adjacency (orthogonal only)
+  const dist = Math.abs(block.x - targetX) + Math.abs(block.y - targetY)
+  if (dist !== 1) return
+
+  // Record old position for approach vector
+  const oldX = block.x
+  const oldY = block.y
+  const approachDX = targetX - oldX
+  const approachDY = targetY - oldY
+
+  // Check occupant first
+  const occupant = findBlockOwner(G, targetX, targetY)
+  if (occupant) {
+    // Occupant belongs to same player => invalid move
+    if (occupant.pID === playerID) {
+      return
+    } else {
+      // Attempt an attack
+      const result = resolveCollision(
+        G,
+        playerID,
+        blockIndex,
+        occupant.pID,
+        occupant.i,
+        approachDX,
+        approachDY
+      )
+
+      // If the defender was removed, the attacker takes the square
+      if (!result.removedAttacker && result.removedDefender) {
+        block.x = targetX
+        block.y = targetY
+      }
+    }
+  } else {
+    // No occupant, just move
+    block.x = targetX
+    block.y = targetY
+  }
+
+  G.moveCount++
+
+  // End turn if move limit reached
+  if (G.moveCount >= 3 && events?.endTurn) {
+    events.endTurn()
+  }
+}
+
+const commitTurn = (context: any, args: { 
+  turnStartBlocks: Block[],
+  ephemeralMoves: Array<{
+    type: 'pivot' | 'step',
+    blockIndex: number,
+    direction?: 'left' | 'right',
+    dx?: number,
+    dy?: number
+  }>
+}) => {
+  const { G, ctx, events } = context
+  const player = ctx.currentPlayer
+  if (!player) return
+
+  // Reset player's blocks to their turn-start positions
+  G.blocks[player] = JSON.parse(JSON.stringify(args.turnStartBlocks))
+  G.moveCount = 0
+
+  // Replay each ephemeral move
+  for (const move of args.ephemeralMoves) {
+    if (G.moveCount >= 3) break
+
+    if (move.type === 'pivot') {
+      pivotBlock(context, {
+        playerID: player,
+        blockIndex: move.blockIndex,
+        direction: move.direction!
+      })
+    } else if (move.type === 'step') {
+      const block = G.blocks[player][move.blockIndex]
+      if (!block) continue
+      const targetX = block.x + (move.dx || 0)
+      const targetY = block.y + (move.dy || 0)
+      stepBlock(context, {
+        playerID: player,
+        blockIndex: move.blockIndex,
+        targetX,
+        targetY
+      })
+    }
+  }
+
+  // Always end turn after commit
+  if (events?.endTurn) {
+    events.endTurn()
+  }
+}
+
 export const FlankGame: Game<GameState> = {
   name: 'flank',
   
@@ -125,16 +249,14 @@ export const FlankGame: Game<GameState> = {
     return getDefaultSetup(ctx.numPlayers)
   },
 
-  // Each turn: effectively no limit since we'll handle it client-side
   turn: {
-    moveLimit: 9999,
+    onBegin: (G) => {
+      G.moveCount = 0  // Reset move count at start of turn
+    },
     order: {
-      first: () => 1, // Start with Player 1 (human)
-      next: (context: FnContext<GameState>) => {
-        const playerOrder = ['1', '2'];
-        const currentIdx = playerOrder.indexOf(context.ctx.currentPlayer);
-        return (currentIdx + 1) % playerOrder.length + 1;
-      }
+      playOrder: () => ['1','2'],
+      first: () => 0,
+      next: (context) => (context.ctx.playOrderPos + 1) % context.ctx.playOrder.length
     }
   },
 
@@ -186,83 +308,9 @@ export const FlankGame: Game<GameState> = {
   },
 
   moves: {
-    pivotBlock: (context, args: { playerID: string; blockIndex: number; direction: 'left' | 'right' }) => {
-      const { G } = context;
-      const { playerID, blockIndex, direction } = args;
-      if (!playerID) return;
-      
-      const block = G.blocks[playerID][blockIndex];
-      if (!block) return;
-      block.direction = pivotDirection(block.direction, direction);
-    },
-
-    stepBlock: (context, args: { playerID: string; blockIndex: number; targetX: number; targetY: number }) => {
-      const { G } = context;
-      const { playerID, blockIndex, targetX, targetY } = args;
-      if (!playerID) return;
-
-      const block = G.blocks[playerID][blockIndex];
-      if (!block) return;
-
-      // Check adjacency (orthogonal only)
-      const dist = Math.abs(block.x - targetX) + Math.abs(block.y - targetY);
-      if (dist !== 1) {
-        return;
-      }
-
-      // Record old position for approach vector
-      const oldX = block.x;
-      const oldY = block.y;
-      const approachDX = targetX - oldX;
-      const approachDY = targetY - oldY;
-
-      // Check occupant first
-      const occupant = findBlockOwner(G, targetX, targetY);
-      if (occupant) {
-        // Occupant belongs to same player => invalid move
-        if (occupant.pID === playerID) {
-          return;
-        } else {
-          // Attempt an attack
-          const result = resolveCollision(
-            G,
-            playerID,
-            blockIndex,
-            occupant.pID,
-            occupant.i,
-            approachDX,
-            approachDY
-          );
-
-          // If the defender was removed, the attacker takes the square
-          if (!result.removedAttacker && result.removedDefender) {
-            block.x = targetX;
-            block.y = targetY;
-          }
-        }
-      } else {
-        // No occupant, just move
-        block.x = targetX;
-        block.y = targetY;
-      }
-    },
-
-    endTurn: ({ events }) => {
-      if (events?.endTurn) {
-        events.endTurn();
-      }
-    },
-
-    // New move to commit the entire ephemeral arrangement from the client
-    commitTurn: (context, args: { newBlocks: Block[] }) => {
-      const { G, ctx, events } = context;
-      if (!ctx.currentPlayer || !args?.newBlocks) return;
-
-      G.blocks[ctx.currentPlayer] = args.newBlocks;
-      if (events?.endTurn) {
-        events.endTurn();
-      }
-    }
+    pivotBlock,
+    stepBlock,
+    commitTurn
   },
 
   endIf: ({ G }: { G: GameState }) => {

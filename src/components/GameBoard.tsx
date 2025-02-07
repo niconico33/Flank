@@ -19,10 +19,18 @@ interface GameBoardProps {
   G: FlankGameState;
   ctx: Ctx & { events?: { endTurn?: () => void } };
   moves: {
-    pivotBlock: (args: any) => void;
-    stepBlock: (args: any) => void;
-    endTurn: () => void;
-    commitTurn: (args: { newBlocks: Block[] }) => void;
+    pivotBlock: (args: { playerID: string; blockIndex: number; direction: 'left' | 'right' }) => void;
+    stepBlock: (args: { playerID: string; blockIndex: number; targetX: number; targetY: number }) => void;
+    commitTurn: (args: {
+      turnStartBlocks: Block[];
+      ephemeralMoves: Array<{
+        type: 'pivot' | 'step';
+        blockIndex: number;
+        direction?: 'left' | 'right';
+        dx?: number;
+        dy?: number;
+      }>;
+    }) => void;
   };
   playerID?: string;
   isActive?: boolean;
@@ -39,77 +47,52 @@ export default function GameBoard({
   isGameStarted,
   setIsGameStarted,
 }: GameBoardProps) {
-  // Board + Blocks from G (actual "official" state)
   const { boardSize, blocks } = G;
+  const gameOver = !!ctx.gameover;
+  const isUser = playerID === '1';
 
-  // We track ephemeral blocks and ephemeral movesUsed for the *human player*
-  // so that the user can "test" up to 3 moves, reset with 'e', or confirm with Enter.
-  // The AI doesn't do ephemeral. It's normal moves from the server side.
+  // Track ephemeral blocks for display
   const [ephemeralBlocks, setEphemeralBlocks] = useState<Block[]>([]);
+  // Track ephemeral moves to replay on server
+  const [ephemeralMoves, setEphemeralMoves] = useState<Array<{
+    type: 'pivot' | 'step',
+    blockIndex: number,
+    direction?: 'left' | 'right',
+    dx?: number,
+    dy?: number
+  }>>([]);
+  // Track moves used in current turn
   const [movesUsed, setMovesUsed] = useState(0);
   const maxMovesPerTurn = 3;
 
-  // We'll also store the original blocks for the player's turn to allow 'e' to revert.
+  // Remember blocks at start of turn
   const [turnStartBlocks, setTurnStartBlocks] = useState<Block[]>([]);
 
-  // Keep track if game is over
-  const gameOver = !!ctx.gameover;
+  // We only do ephemeral movement if isActive, isUser, game not over, game started, and it's our turn
+  const canEphemeralMove =
+    isActive && isUser && !gameOver && isGameStarted && ctx.currentPlayer === playerID;
 
-  // Identify if I'm "player 1" (the user) or not
-  const isUser = playerID === '1';
-
-  // On each new state from boardgame.io, if it's my turn and I'm the user,
-  // refresh ephemeral blocks to match my official blocks, but only if the game isn't over.
+  // Sync ephemeral blocks at start of turn
   useEffect(() => {
     if (!gameOver && isUser && ctx.currentPlayer === playerID) {
       const myBlocks = blocks[playerID!] || [];
-      setEphemeralBlocks(JSON.parse(JSON.stringify(myBlocks)));
-      setTurnStartBlocks(JSON.parse(JSON.stringify(myBlocks)));
+      const clone = JSON.parse(JSON.stringify(myBlocks)) as Block[];
+      setEphemeralBlocks(clone);
+      setTurnStartBlocks(clone);
       setMovesUsed(0);
+      setEphemeralMoves([]);
+    } else if (gameOver || !isActive || !isUser || ctx.currentPlayer !== playerID) {
+      setEphemeralBlocks([]);
+      setTurnStartBlocks([]);
+      setMovesUsed(0);
+      setEphemeralMoves([]);
     }
-  }, [blocks, ctx.currentPlayer, gameOver, isUser, playerID]);
-
-  // If the user is not the current player or the game is over,
-  // ephemeral blocks should simply reflect the official data.
-  useEffect(() => {
-    if (gameOver) {
-      // Show final board
-      return;
-    }
-    if (!isUser || ctx.currentPlayer !== playerID) {
-      // We are not making ephemeral moves => display official
-      // so user sees AI's final positions or other players' positions
-      if (playerID && blocks[playerID]) {
-        // Just do nothing for ephemeral. We won't modify ephemeral in that scenario.
-        setEphemeralBlocks([]);
-        setTurnStartBlocks([]);
-        setMovesUsed(0);
-      }
-    }
-  }, [gameOver, ctx.currentPlayer, isUser, playerID, blocks]);
-
-  // On first mount, also set up "Press Enter to Start" logic
-  useEffect(() => {
-    const handlePress = (e: KeyboardEvent) => {
-      if (!isGameStarted && !gameOver && e.key === 'Enter') {
-        setIsGameStarted(true);
-      }
-    };
-    window.addEventListener('keydown', handlePress);
-    return () => window.removeEventListener('keydown', handlePress);
-  }, [isGameStarted, setIsGameStarted, gameOver]);
-
-  // *** KEY HANDLERS *** //
-  // We only do ephemeral movement if isActive, isUser, game not over, game started, and it's our turn.
-  const canEphemeralMove =
-    isActive && isUser && !gameOver && isGameStarted && ctx.currentPlayer === playerID;
+  }, [blocks, ctx.currentPlayer, isUser, playerID, isActive, gameOver]);
 
   // Helper function to pivot ephemeral block
   const ephemeralPivotBlock = (direction: 'left' | 'right') => {
     if (!canEphemeralMove) return;
     if (movesUsed >= maxMovesPerTurn) return;
-
-    // If no ephemeral block is selected, pivot the first one by default
     if (selectedBlockIndex === null) return;
 
     const updated = JSON.parse(JSON.stringify(ephemeralBlocks)) as Block[];
@@ -118,7 +101,16 @@ export default function GameBoard({
 
     // pivot
     block.direction = pivotDirection(block.direction, direction);
+    
+    // Record the move
+    const newMoves = [...ephemeralMoves, {
+      type: 'pivot' as const,
+      blockIndex: selectedBlockIndex,
+      direction
+    }];
+
     setEphemeralBlocks(updated);
+    setEphemeralMoves(newMoves);
     setMovesUsed(movesUsed + 1);
   };
 
@@ -146,34 +138,33 @@ export default function GameBoard({
   const ephemeralStepBlock = (dx: number, dy: number) => {
     if (!canEphemeralMove) return;
     if (movesUsed >= maxMovesPerTurn) return;
-
     if (selectedBlockIndex === null) return;
+
     const updated = JSON.parse(JSON.stringify(ephemeralBlocks)) as Block[];
     const block = updated[selectedBlockIndex];
     if (!block) return;
 
-    // Move it orthogonally by dx, dy
     const newX = block.x + dx;
     const newY = block.y + dy;
-    // board boundary check
     if (newX < 0 || newX >= boardSize || newY < 0 || newY >= boardSize) return;
 
-    // We do not do "attacks" ephemeral. This is just a visual positioning guess for the user.
-    // We'll allow the user to step into squares. If there's a *friendly* occupant, we won't allow it.
-    // If there's an enemy occupant, we also won't allow it here in ephemeral mode. (User can see a potential move.)
-    // For simplicity, let's forbid stepping onto ANY occupant in ephemeral mode.
-
-    // Check occupant among ephemeral blocks of both players?
-    // Actually let's check ephemeral blocks for the *user's own pieces*, but the AI's squares are from G.
-    // We'll keep it simple: if ephemeral or official squares are occupied, block the step.
-    if (findAnyOccupantInEphemeralOrOfficial(newX, newY)) {
-      return;
-    }
+    // We do not do "attacks" ephemeral. This is just a visual positioning guess.
+    // For simplicity, forbid stepping onto ANY occupant in ephemeral mode.
+    if (findAnyOccupantInEphemeralOrOfficial(newX, newY)) return;
 
     block.x = newX;
     block.y = newY;
 
+    // Record the move
+    const newMoves = [...ephemeralMoves, {
+      type: 'step' as const,
+      blockIndex: selectedBlockIndex,
+      dx,
+      dy
+    }];
+
     setEphemeralBlocks(updated);
+    setEphemeralMoves(newMoves);
     setMovesUsed(movesUsed + 1);
   };
 
@@ -201,15 +192,18 @@ export default function GameBoard({
   // ephemeral reset
   const ephemeralReset = () => {
     if (!canEphemeralMove) return;
-    // revert ephemeralBlocks to turnStartBlocks
     setEphemeralBlocks(JSON.parse(JSON.stringify(turnStartBlocks)));
+    setEphemeralMoves([]);
     setMovesUsed(0);
   };
 
   // ephemeral commit => call commitTurn => endTurn
   const ephemeralCommit = () => {
     if (!canEphemeralMove) return;
-    moves.commitTurn({ newBlocks: ephemeralBlocks });
+    moves.commitTurn({
+      turnStartBlocks,
+      ephemeralMoves
+    });
   };
 
   // *** Selecting pieces *** //
