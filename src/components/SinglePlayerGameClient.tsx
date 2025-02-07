@@ -51,8 +51,22 @@ export default function SinglePlayerGameClient() {
     }),
   });
 
+  const handleResetGame = () => {
+    (FlankSinglePlayer as any).reset();
+  };
+
   return (
     <div className="game-container flex flex-col justify-center items-center p-4">
+      {/* Reset Button */}
+      <div className="mb-4">
+        <button
+          onClick={handleResetGame}
+          className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+        >
+          Reset Game
+        </button>
+      </div>
+
       <h2 className="text-xl font-bold mb-4 text-center">Player 1 (You) vs. Player 2 (AI)</h2>
       <div className="w-full md:w-5/6 lg:w-3/4 xl:w-2/3 border p-4 rounded shadow bg-white">
         <FlankSinglePlayer playerID="1" />

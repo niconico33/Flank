@@ -231,6 +231,9 @@ export default function GameBoard({
   // ephemeral commit => call commitTurn => endTurn
   const ephemeralCommit = () => {
     if (!canEphemeralMove) return;
+    // Double-check: Only allow if it's indeed the current player's turn
+    if (ctx.currentPlayer !== playerID) return;
+
     moves.commitTurn({
       turnStartBlocks,
       ephemeralMoves

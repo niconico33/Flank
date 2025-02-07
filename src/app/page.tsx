@@ -7,7 +7,7 @@ export default function HomePage() {
     <div className="min-h-screen flex flex-col">
       <Navbar />
       
-      <main className="flex-grow flex flex-col items-center p-4 bg-gradient-to-b from-gray-50 to-gray-100">
+      <main className="flex-grow flex flex-col items-center p-4 bg-gradient-to-b from-gray-50 to-gray-100 overflow-y-auto">
         <div className="max-w-4xl mx-auto w-full">
           <div className="text-center mb-12">
             <h1 className="text-6xl font-bold mb-6 text-gray-900">
