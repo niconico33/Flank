@@ -156,10 +156,8 @@ const stepBlock = (context: any, args: { playerID: string; blockIndex: number; t
   if (dist !== 1) return
 
   // Record old position for approach vector
-  const oldX = block.x
-  const oldY = block.y
-  const approachDX = targetX - oldX
-  const approachDY = targetY - oldY
+  const dx = targetX - block.x
+  const dy = targetY - block.y
 
   // Check occupant first
   const occupant = findBlockOwner(G, targetX, targetY)
@@ -167,27 +165,23 @@ const stepBlock = (context: any, args: { playerID: string; blockIndex: number; t
     // Occupant belongs to same player => invalid move
     if (occupant.pID === playerID) {
       return
-    } else {
-      // Attempt an attack
-      const result = resolveCollision(
-        G,
-        playerID,
-        blockIndex,
-        occupant.pID,
-        occupant.i,
-        approachDX,
-        approachDY
-      )
-
-      // If the defender was removed (nose vs body), the attacker takes the square
-      if (!result.removedAttacker && result.removedDefender) {
-        // The defender has already been removed by resolveCollision
-        block.x = targetX
-        block.y = targetY
-      }
-      // If the attacker was removed (nose vs nose or body vs any), they're already gone
-      // so we don't need to do anything else
     }
+
+    // Check attack validity
+    const attackerNose = isNose(block.direction, { dx, dy })
+    const defender = G.blocks[occupant.pID][occupant.i]
+    const defenderNose = isNose(defender.direction, { dx: -dx, dy: -dy })
+
+    // Only allow nose-on-body attacks
+    // Prevent: nose-on-nose, body-on-body, body-on-nose
+    if (!attackerNose || defenderNose) {
+      return // Invalid attack, move is prevented
+    }
+
+    // Valid nose-on-body attack - remove defender and move attacker
+    G.blocks[occupant.pID].splice(occupant.i, 1)
+    block.x = targetX
+    block.y = targetY
   } else {
     // No occupant, just move
     block.x = targetX

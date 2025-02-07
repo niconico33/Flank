@@ -139,6 +139,17 @@ export default function GameBoard({
     return turn === 'left' ? leftMap[current] : rightMap[current];
   };
 
+  // Helper to determine if a direction matches the approach vector
+  const isNose = (direction: Block['direction'], approach: { dx: number; dy: number }) => {
+    switch (direction) {
+      case 'up':    return approach.dy === -1; // Moving up
+      case 'down':  return approach.dy === 1;  // Moving down
+      case 'left':  return approach.dx === -1; // Moving left
+      case 'right': return approach.dx === 1;  // Moving right
+      default:      return false;
+    }
+  };
+
   // ephemeral step
   const ephemeralStepBlock = (dx: number, dy: number) => {
     if (!canEphemeralMove) return;
@@ -153,10 +164,25 @@ export default function GameBoard({
     const newY = block.y + dy;
     if (newX < 0 || newX >= boardSize || newY < 0 || newY >= boardSize) return;
 
-    // Check for occupants - allow moving onto enemy squares but not our own pieces
+    // Check for occupants
     const occupant = findOccupant(newX, newY);
-    if (occupant && occupant.pID === playerID) return; // Can't move onto our own pieces
+    if (occupant) {
+      // Can't move onto our own pieces
+      if (occupant.pID === playerID) return;
 
+      // For enemy pieces, check attack validity
+      const attackerNose = isNose(block.direction, { dx, dy });
+      const defenderNose = isNose(occupant.direction, { dx: -dx, dy: -dy });
+
+      // Only allow nose-on-body attacks
+      // Prevent: nose-on-nose, body-on-body, body-on-nose
+      if (!attackerNose || defenderNose) {
+        return; // Invalid attack, move is prevented
+      }
+      // If we get here, it's a valid nose-on-body attack
+    }
+
+    // Valid move - either empty square or valid attack
     block.x = newX;
     block.y = newY;
 
