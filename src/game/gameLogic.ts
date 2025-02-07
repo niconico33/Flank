@@ -1,4 +1,5 @@
 import { Game, Ctx } from 'boardgame.io'
+import { FnContext } from 'boardgame.io/dist/types/src/types'
 
 export interface Block {
   x: number
@@ -14,31 +15,25 @@ export interface GameState {
 }
 
 function getDefaultSetup(numPlayers: number) {
-  // For simplicity, only handle up to 2 players with 4 blocks each.
-  // You can expand this for more players (3 or 4) as needed.
   const defaultState: GameState = {
     boardSize: 8,
     blocks: {
-      '0': [], // Initialize with empty array for player 0 (User)
-      '1': [], // Initialize with empty array for player 1 (FlankBoss)
+      'A': [], // Player A's blocks
+      'B': [], // Player B's blocks
     },
   }
 
-  // Player 1's blocks (FlankBoss) at top side
-  // Place them on row 0, columns 2..5
-  // All facing down
-  defaultState.blocks['1'].push({ x: 2, y: 0, direction: 'down' })
-  defaultState.blocks['1'].push({ x: 3, y: 0, direction: 'down' })
-  defaultState.blocks['1'].push({ x: 4, y: 0, direction: 'down' })
-  defaultState.blocks['1'].push({ x: 5, y: 0, direction: 'down' })
+  // Player A's blocks at top side
+  defaultState.blocks['A'].push({ x: 2, y: 0, direction: 'down' })
+  defaultState.blocks['A'].push({ x: 3, y: 0, direction: 'down' })
+  defaultState.blocks['A'].push({ x: 4, y: 0, direction: 'down' })
+  defaultState.blocks['A'].push({ x: 5, y: 0, direction: 'down' })
 
-  // Player 0's blocks (User) at bottom side
-  // Place them on row 7, columns 2..5
-  // All facing up
-  defaultState.blocks['0'].push({ x: 2, y: 7, direction: 'up' })
-  defaultState.blocks['0'].push({ x: 3, y: 7, direction: 'up' })
-  defaultState.blocks['0'].push({ x: 4, y: 7, direction: 'up' })
-  defaultState.blocks['0'].push({ x: 5, y: 7, direction: 'up' })
+  // Player B's blocks at bottom side
+  defaultState.blocks['B'].push({ x: 2, y: 7, direction: 'up' })
+  defaultState.blocks['B'].push({ x: 3, y: 7, direction: 'up' })
+  defaultState.blocks['B'].push({ x: 4, y: 7, direction: 'up' })
+  defaultState.blocks['B'].push({ x: 5, y: 7, direction: 'up' })
 
   return defaultState
 }
@@ -142,6 +137,7 @@ function resolveCollision(
 
 export const FlankGame: Game<GameState> = {
   name: 'flank',
+  
   setup: ({ ctx }) => {
     return getDefaultSetup(ctx.numPlayers)
   },
@@ -149,73 +145,70 @@ export const FlankGame: Game<GameState> = {
   // Each turn: up to 3 moves
   turn: {
     moveLimit: 3,
+    order: {
+      first: () => 0,
+      next: (context: FnContext<GameState>) => {
+        const playerOrder = ['A', 'B'];
+        const currentIdx = playerOrder.indexOf(context.ctx.currentPlayer);
+        return (currentIdx + 1) % playerOrder.length;
+      }
+    }
   },
 
   moves: {
-    pivotBlock: {
-      move: ({ G, ctx, playerID, blockIndex, directionChange }: {
-        G: GameState;
-        ctx: Ctx;
-        playerID: string;
-        blockIndex: number;
-        directionChange: 'left' | 'right';
-      }) => {
-        const block = G.blocks[playerID][blockIndex]
-        if (!block) return
-        block.direction = pivotDirection(block.direction, directionChange)
-      },
+    pivotBlock: (context, blockIndex: number, directionChange: 'left' | 'right') => {
+      const { G, ctx, playerID } = context;
+      if (!playerID) return;
+      
+      const block = G.blocks[playerID][blockIndex];
+      if (!block) return;
+      block.direction = pivotDirection(block.direction, directionChange);
     },
 
-    stepBlock: {
-      move: ({ G, ctx, playerID, blockIndex, targetX, targetY }: {
-        G: GameState;
-        ctx: Ctx;
-        playerID: string;
-        blockIndex: number;
-        targetX: number;
-        targetY: number;
-      }) => {
-        const block = G.blocks[playerID][blockIndex]
-        if (!block) return
+    stepBlock: (context, blockIndex: number, targetX: number, targetY: number) => {
+      const { G, ctx, playerID } = context;
+      if (!playerID) return;
 
-        // Check adjacency (orthogonal only)
-        const dist = Math.abs(block.x - targetX) + Math.abs(block.y - targetY)
-        if (dist !== 1) {
-          // Not an adjacent square, do nothing
-          return
+      const block = G.blocks[playerID][blockIndex];
+      if (!block) return;
+
+      // Check adjacency (orthogonal only)
+      const dist = Math.abs(block.x - targetX) + Math.abs(block.y - targetY);
+      if (dist !== 1) {
+        // Not an adjacent square, do nothing
+        return;
+      }
+
+      // Attempt move
+      const occupant = findBlockOwner(G, targetX, targetY);
+
+      // Temporarily store old position
+      const oldX = block.x;
+      const oldY = block.y;
+
+      block.x = targetX;
+      block.y = targetY;
+
+      if (occupant) {
+        // There's an opponent block or your own block?
+        if (occupant.pID === playerID) {
+          // That means you're trying to move into your own block => invalid or no effect
+          // Revert
+          block.x = oldX;
+          block.y = oldY;
+          return;
+        } else {
+          // Attack scenario
+          resolveCollision(G, playerID, blockIndex, occupant.pID, occupant.i);
         }
-
-        // Attempt move
-        const occupant = findBlockOwner(G, targetX, targetY)
-
-        // Temporarily store old position
-        const oldX = block.x
-        const oldY = block.y
-
-        block.x = targetX
-        block.y = targetY
-
-        if (occupant) {
-          // There's an opponent block or your own block?
-          if (occupant.pID === playerID) {
-            // That means you're trying to move into your own block => invalid or no effect
-            // Revert
-            block.x = oldX
-            block.y = oldY
-            return
-          } else {
-            // Attack scenario
-            resolveCollision(G, playerID, blockIndex, occupant.pID, occupant.i)
-          }
-        }
-      },
+      }
     },
 
-    // Added endTurn move for AI usage
-    endTurn: {
-      move: ({ G, ctx }: { G: GameState; ctx: Ctx }) => {
-        ctx.events?.endTurn();
-      },
+    endTurn: (context) => {
+      const { events } = context;
+      if (events?.endTurn) {
+        events.endTurn();
+      }
     },
   },
 

@@ -3,17 +3,28 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Client } from 'boardgame.io/react';
 import { RandomBot } from 'boardgame.io/ai';
-import { FlankGame, GameState, Block } from '@/game/gameLogic';
+import { FlankGame } from '../game/gameLogic';
+import type { GameState } from '../game/gameLogic';
 import GameBoard from './GameBoard';
 import { BoardProps } from 'boardgame.io/react';
 
-function GameBoardWrapper(props: BoardProps & { isGameStarted: boolean; setIsGameStarted: (started: boolean) => void }) {
+interface GameBoardWrapperProps extends Omit<BoardProps, 'moves'> {
+  isGameStarted: boolean;
+  setIsGameStarted: (started: boolean) => void;
+  moves: {
+    pivotBlock: (args: { playerID: string; blockIndex: number; direction: 'left' | 'right' }) => void;
+    stepBlock: (args: { playerID: string; blockIndex: number; targetX: number; targetY: number }) => void;
+    endTurn: () => void;
+  };
+}
+
+function GameBoardWrapper(props: GameBoardWrapperProps) {
   return (
     <GameBoard
       G={props.G}
       ctx={props.ctx}
       moves={props.moves}
-      playerID={props.playerID}
+      playerID={props.playerID || undefined}
       isActive={props.isActive}
       isGameStarted={props.isGameStarted}
       setIsGameStarted={props.setIsGameStarted}
@@ -22,238 +33,173 @@ function GameBoardWrapper(props: BoardProps & { isGameStarted: boolean; setIsGam
 }
 
 export default function SinglePlayerGameClient() {
-  const [selectedIndex, setSelectedIndex] = useState<number>(0);
-  const [moveCount, setMoveCount] = useState<number>(0);
-  const [previewState, setPreviewState] = useState<GameState | null>(null);
   const [isGameStarted, setIsGameStarted] = useState(false);
-  const [movesBuffer, setMovesBuffer] = useState<Array<{
-    type: 'pivot' | 'step';
-    direction?: 'left' | 'right' | 'up' | 'down';
-  }>>([]);
+  const [selectedIndex, setSelectedIndex] = useState<number>(0);
 
-  const FlankSinglePlayer = Client({
+  // Create the single-player client with an AI for player 1
+  const FlankSinglePlayer = Client<GameState>({
     game: FlankGame,
     board: (props: BoardProps) => (
-      <GameBoardWrapper {...props} isGameStarted={isGameStarted} setIsGameStarted={setIsGameStarted} />
+      <GameBoardWrapper {...props as any} isGameStarted={isGameStarted} setIsGameStarted={setIsGameStarted} />
     ),
     debug: false,
     numPlayers: 2,
+    // Let the AI control player 1
     ai: {
-      enumerate: (G: GameState) => {
-        const moves = [];
-        const playerID = '1'; // AI is always player 1
-        
-        // For each block
-        for (let i = 0; i < G.blocks[playerID].length; i++) {
-          // Add pivot moves
-          moves.push({ move: 'pivotBlock', args: [playerID, i, 'left'] });
-          moves.push({ move: 'pivotBlock', args: [playerID, i, 'right'] });
-          
-          // Add step moves in each direction
-          const block = G.blocks[playerID][i];
-          const directions = [
-            { dx: 0, dy: -1 }, // up
-            { dx: 0, dy: 1 },  // down
-            { dx: -1, dy: 0 }, // left
-            { dx: 1, dy: 0 },  // right
-          ];
-          
-          for (const dir of directions) {
-            const newX = block.x + dir.dx;
-            const newY = block.y + dir.dy;
-            
-            // Check bounds
-            if (newX >= 0 && newX < G.boardSize && newY >= 0 && newY < G.boardSize) {
-              moves.push({ move: 'stepBlock', args: [playerID, i, newX, newY] });
-            }
-          }
-        }
-        
-        // Add end turn move
-        moves.push({ move: 'endTurn', args: [] });
-        
-        return moves;
-      },
       bots: {
         '1': RandomBot,
       },
     },
   });
 
-  // Access the internal store's state
+  // Helper to get the current Redux store state from FlankSinglePlayer
   const getStoreState = useCallback(() => {
     const store = (FlankSinglePlayer as any)?.store;
     return store?.getState();
   }, [FlankSinglePlayer]);
 
-  // Re-initialize preview state when it's user's turn
-  const refreshPreviewState = useCallback(() => {
+  // Switch to next block for the user
+  const toggleBlock = useCallback(() => {
     const state = getStoreState();
     if (!state) return;
+
     const { G, ctx } = state;
-    if (ctx.currentPlayer === '0') {
-      // Deep clone G for preview
-      const cloned: GameState = JSON.parse(JSON.stringify(G));
-      setPreviewState(cloned);
-      setMoveCount(0);
-      setMovesBuffer([]);
-      setSelectedIndex(0);
-    } else {
-      setPreviewState(null);
+    if (ctx.currentPlayer !== '0') return;
+
+    const userBlocks = G.blocks['0'];
+    if (userBlocks && userBlocks.length > 0) {
+      setSelectedIndex((prev) => (prev + 1) % userBlocks.length);
     }
   }, [getStoreState]);
 
-  // Helper pivot function for preview
-  const pivotPreview = useCallback((dir: 'left' | 'right') => {
-    if (!previewState || moveCount >= 3) return;
+  // Direct pivot move
+  const pivotBlock = useCallback((direction: 'left' | 'right') => {
+    const state = getStoreState();
+    if (!state) return;
 
-    const userBlocks = previewState.blocks['0'];
-    if (!userBlocks || selectedIndex >= userBlocks.length) return;
+    const { ctx } = state;
+    if (ctx.currentPlayer !== '0') return;
 
-    const block = userBlocks[selectedIndex];
-    const pivotDirection = (current: Block['direction'], turn: 'left' | 'right') => {
-      const leftMap: Record<Block['direction'], Block['direction']> = {
-        up: 'left',
-        left: 'down',
-        down: 'right',
-        right: 'up',
-      };
-      const rightMap: Record<Block['direction'], Block['direction']> = {
-        up: 'right',
-        right: 'down',
-        down: 'left',
-        left: 'up',
-      };
-      return turn === 'left' ? leftMap[current] : rightMap[current];
-    };
+    (FlankSinglePlayer as any).moves.pivotBlock({ playerID: '0', blockIndex: selectedIndex, direction });
+  }, [getStoreState, FlankSinglePlayer, selectedIndex]);
 
-    block.direction = pivotDirection(block.direction, dir);
-    setPreviewState({ ...previewState });
-    setMoveCount(prev => prev + 1);
-    setMovesBuffer(prev => [...prev, { type: 'pivot', direction: dir }]);
-  }, [previewState, selectedIndex, moveCount]);
+  // Direct step move
+  const stepBlock = useCallback((dir: 'up' | 'down' | 'left' | 'right') => {
+    const state = getStoreState();
+    if (!state) return;
 
-  // Helper step function for preview
-  const stepPreview = useCallback((dir: 'up' | 'down' | 'left' | 'right') => {
-    if (!previewState || moveCount >= 3) return;
+    const { ctx, G } = state;
+    if (ctx.currentPlayer !== '0') return;
 
-    const userBlocks = previewState.blocks['0'];
-    if (!userBlocks || selectedIndex >= userBlocks.length) return;
+    const block = G.blocks['0'][selectedIndex];
+    if (!block) return;
 
-    const block = userBlocks[selectedIndex];
     let newX = block.x;
     let newY = block.y;
 
     if (dir === 'up') newY--;
-    if (dir === 'down') newY++;
-    if (dir === 'left') newX--;
-    if (dir === 'right') newX++;
+    else if (dir === 'down') newY++;
+    else if (dir === 'left') newX--;
+    else if (dir === 'right') newX++;
 
     // Basic boundary check
-    if (newX < 0 || newX >= previewState.boardSize || newY < 0 || newY >= previewState.boardSize) {
+    if (newX < 0 || newX >= G.boardSize || newY < 0 || newY >= G.boardSize) {
       return;
     }
 
-    block.x = newX;
-    block.y = newY;
-    setPreviewState({ ...previewState });
-    setMoveCount(prev => prev + 1);
-    setMovesBuffer(prev => [...prev, { type: 'step', direction: dir }]);
-  }, [previewState, selectedIndex, moveCount]);
+    (FlankSinglePlayer as any).moves.stepBlock({ playerID: '0', blockIndex: selectedIndex, targetX: newX, targetY: newY });
+  }, [getStoreState, FlankSinglePlayer, selectedIndex]);
 
-  // Toggle selected block
-  const toggleBlock = useCallback(() => {
-    if (!previewState) return;
-    const userBlocks = previewState.blocks['0'];
-    if (!userBlocks) return;
-    setSelectedIndex(prev => (prev + 1) % userBlocks.length);
-  }, [previewState]);
-
-  // Reset preview state
-  const resetPreview = useCallback(() => {
-    refreshPreviewState();
-  }, [refreshPreviewState]);
-
-  // Confirm moves
-  const confirmMoves = useCallback(() => {
+  // End turn
+  const endUserTurn = useCallback(() => {
     const state = getStoreState();
-    if (!state || state.ctx.currentPlayer !== '0') return;
+    if (!state) return;
+    const { ctx } = state;
+    if (ctx.currentPlayer === '0') {
+      (FlankSinglePlayer as any).moves.endTurn();
+    }
+  }, [getStoreState, FlankSinglePlayer]);
 
-    // Apply all buffered moves
-    movesBuffer.forEach(move => {
-      if (move.type === 'pivot') {
-        (FlankSinglePlayer as any).moves.pivotBlock('0', selectedIndex, move.direction);
-      } else if (move.type === 'step') {
-        const block = state.G.blocks['0'][selectedIndex];
-        let targetX = block.x;
-        let targetY = block.y;
-
-        if (move.direction === 'up') targetY--;
-        if (move.direction === 'down') targetY++;
-        if (move.direction === 'left') targetX--;
-        if (move.direction === 'right') targetX++;
-
-        (FlankSinglePlayer as any).moves.stepBlock('0', selectedIndex, targetX, targetY);
-      }
-    });
-
-    // End turn
-    (FlankSinglePlayer as any).moves.endTurn();
-    
-    // Reset local state
-    setMovesBuffer([]);
-    setMoveCount(0);
-    setPreviewState(null);
-  }, [FlankSinglePlayer, getStoreState, movesBuffer, selectedIndex]);
-
-  // Set up keyboard controls
+  // Single keyboard listener for the user's turn
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // If game not started, only ENTER starts
       if (!isGameStarted) {
         if (e.key === 'Enter') {
+          e.preventDefault();
           setIsGameStarted(true);
-          return;
         }
         return;
       }
 
+      // Check if user's turn
       const state = getStoreState();
       if (!state || state.ctx.currentPlayer !== '0') return;
 
+      // Prevent scrolling on arrow keys and other game controls
+      if (
+        [
+          'ArrowUp',
+          'ArrowDown',
+          'ArrowLeft',
+          'ArrowRight',
+          's',
+          'f',
+          't',
+          'Enter',
+          'w',
+          'a',
+          'd'
+        ].includes(e.key)
+      ) {
+        e.preventDefault();
+      }
+
       switch (e.key) {
+        case 'ArrowUp':
+        case 'w':
+          stepBlock('up');
+          break;
+        case 'ArrowDown':
         case 's':
-          pivotPreview('left');
+          stepBlock('down');
+          break;
+        case 'ArrowLeft':
+        case 'a':
+          stepBlock('left');
+          break;
+        case 'ArrowRight':
+        case 'd':
+          stepBlock('right');
           break;
         case 'f':
-          pivotPreview('right');
+          pivotBlock('right');
           break;
         case 't':
           toggleBlock();
           break;
-        case 'e':
-          resetPreview();
-          break;
         case 'Enter':
-          confirmMoves();
+          endUserTurn();
           break;
-        case 'ArrowUp':
-          stepPreview('up');
-          break;
-        case 'ArrowDown':
-          stepPreview('down');
-          break;
-        case 'ArrowLeft':
-          stepPreview('left');
-          break;
-        case 'ArrowRight':
-          stepPreview('right');
+        case 'S':
+          // If uppercase 'S', pivot left
+          if (e.shiftKey || !e.shiftKey) {
+            pivotBlock('left');
+          }
           break;
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { passive: false });
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [getStoreState, pivotPreview, stepPreview, toggleBlock, resetPreview, confirmMoves, isGameStarted]);
+  }, [
+    isGameStarted,
+    getStoreState,
+    stepBlock,
+    pivotBlock,
+    toggleBlock,
+    endUserTurn,
+  ]);
 
   return (
     <div className="flex flex-col justify-center items-center p-4">

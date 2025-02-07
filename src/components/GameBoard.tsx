@@ -2,7 +2,7 @@
 
 import { Ctx } from 'boardgame.io';
 import { MoveFn } from 'boardgame.io/dist/types/src/types';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { EventsAPI } from 'boardgame.io/dist/types/src/plugins/events/events';
 
 interface Block {
@@ -22,10 +22,10 @@ interface FlankGameState {
 
 interface GameBoardProps {
   G: FlankGameState;
-  ctx: Ctx;
+  ctx: Ctx & { events?: { endTurn: () => void } };
   moves: {
-    pivotBlock: MoveFn<any>;
-    stepBlock: MoveFn<any>;
+    pivotBlock: (args: any) => void;
+    stepBlock: (args: any) => void;
   };
   playerID?: string;
   isActive?: boolean;
@@ -39,6 +39,41 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
   const [isHighlighted, setIsHighlighted] = useState(false);
 
   const currentPlayerBlocks = blocks[playerID || '0'] || [];
+
+  // Handle Enter key to start game
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !isGameStarted) {
+        setIsGameStarted(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [isGameStarted, setIsGameStarted]);
+
+  // Get the current piece label (A1-A4 or B1-B4)
+  const getCurrentPieceLabel = () => {
+    if (!selected || !playerID) return null;
+    return `${playerID}${selected.blockIndex + 1}`;
+  };
+
+  // Toggle to next piece
+  const toggleNextPiece = () => {
+    if (!playerID || !isActive) return;
+    
+    const currentBlocks = blocks[playerID];
+    if (!currentBlocks || currentBlocks.length === 0) return;
+
+    if (!selected) {
+      // If nothing selected, select the first piece
+      setSelected({ blockIndex: 0, playerID });
+    } else {
+      // Move to next piece or wrap around
+      const nextIndex = (selected.blockIndex + 1) % currentBlocks.length;
+      setSelected({ blockIndex: nextIndex, playerID });
+    }
+  };
 
   // Helper to find the occupant of a cell
   function findBlockOwner(x: number, y: number): { player: string; index: number } | null {
@@ -54,43 +89,37 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
   }
 
   // For occupant color and label
-  function getOccupantLabelAndColor(pID: string, direction: string) {
-    let label = pID === '0' ? 'U' : 'B'; // U for User, B for FlankBoss
+  function getOccupantLabelAndColor(pID: string, direction: string, index: number) {
+    const label = `P${pID}${index + 1}`;
     let arrow = '↑';
     if (direction === 'down') arrow = '↓';
     if (direction === 'left') arrow = '←';
     if (direction === 'right') arrow = '→';
 
-    const colorClass = pID === '0' ? 'text-orange-500' : 'text-blue-500';
+    const colorMap: Record<string, string> = {
+      '0': 'text-blue-500',
+      '1': 'text-red-500'
+    };
+
+    const colorClass = colorMap[pID] || 'text-gray-500';
     return { display: `${label}${arrow}`, colorClass };
   }
 
   const handleCellClick = (x: number, y: number) => {
-    if (!isActive || !playerID) return;
+    if (!isActive || !playerID || !isGameStarted) return;
 
     const occupant = findBlockOwner(x, y);
 
     // If there's a block in this cell belonging to you, select/deselect it
     if (occupant && occupant.player === playerID) {
-      // If already selected the same block, deselect
-      if (
-        selected &&
-        selected.blockIndex === occupant.index &&
-        selected.playerID === occupant.player
-      ) {
-        setSelected(null);
+      if (selected && selected.blockIndex === occupant.index && selected.playerID === occupant.player) {
+        setSelected(null); // Deselect if clicking the same piece
       } else {
-        setSelected({ blockIndex: occupant.index, playerID: occupant.player });
+        setSelected({ blockIndex: occupant.index, playerID: occupant.player }); // Select new piece
       }
     } else if (selected) {
-      // Attempt to step onto that cell
-      moves.stepBlock({
-        playerID,
-        blockIndex: selected.blockIndex,
-        targetX: x,
-        targetY: y,
-      } as any);
-      setSelected(null);
+      // Attempt to move to the clicked cell
+      moves.stepBlock({ blockIndex: selected.blockIndex, targetX: x, targetY: y });
     }
   };
 
@@ -98,7 +127,7 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
     <div className="flex items-start justify-center space-x-8">
       {/* Game Board */}
       <div className="relative">
-        <div className={`grid grid-cols-8 transition-all duration-300 ${isHighlighted ? 'brightness-110 scale-[1.02]' : ''} ${!isGameStarted ? 'opacity-80' : ''}`}>
+        <div className={`grid grid-cols-8 transition-all duration-300 ${!isGameStarted ? 'opacity-80' : ''}`}>
           {Array.from({ length: boardSize }).map((_, rowIdx) => (
             <div key={`row-${rowIdx}`} className="contents">
               {Array.from({ length: boardSize }).map((__, colIdx) => {
@@ -108,7 +137,7 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
 
                 if (occupant) {
                   const block = blocks[occupant.player][occupant.index];
-                  const result = getOccupantLabelAndColor(occupant.player, block.direction);
+                  const result = getOccupantLabelAndColor(occupant.player, block.direction, occupant.index);
                   display = result.display;
                   colorClass = result.colorClass;
                 }
@@ -157,6 +186,26 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
       {/* Controls Panel */}
       <div className="bg-white p-6 rounded-lg shadow-md w-72">
         <h3 className="text-lg font-bold mb-4">Game Controls</h3>
+        
+        {/* Current Piece Display */}
+        <div className="mb-6 p-3 bg-gray-50 rounded-lg">
+          <h4 className="font-semibold mb-2 text-gray-700">Current Piece</h4>
+          <div className="flex items-center justify-between">
+            <span className={`text-2xl font-bold ${selected ? (playerID === '0' ? 'text-blue-500' : 'text-red-500') : 'text-gray-400'}`}>
+              {getCurrentPieceLabel() || 'None'}
+            </span>
+            <button
+              onClick={toggleNextPiece}
+              className={`px-3 py-1 rounded ${
+                isActive ? 'bg-indigo-500 text-white hover:bg-indigo-600' : 'bg-gray-200 text-gray-500'
+              } transition-colors`}
+              disabled={!isActive}
+            >
+              Toggle
+            </button>
+          </div>
+        </div>
+
         <div className={`space-y-6 ${!isGameStarted ? 'opacity-75' : ''}`}>
           <div>
             <h4 className="font-semibold mb-3 text-gray-700">Movement Controls</h4>
@@ -208,15 +257,9 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
               </div>
               <div className="flex items-center space-x-3">
                 <div className="w-16 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300">
-                  <span className="font-mono">E</span>
-                </div>
-                <p className="text-sm text-gray-600">Reset Current Move</p>
-              </div>
-              <div className="flex items-center space-x-3">
-                <div className="w-16 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300">
                   <span className="font-mono">Enter</span>
                 </div>
-                <p className="text-sm text-gray-600">Confirm Move</p>
+                <p className="text-sm text-gray-600">End Turn / Start Game</p>
               </div>
             </div>
           </div>
