@@ -15,9 +15,7 @@ export default function HowToPlayPage() {
         <section className="mb-12">
           <h2 className="text-2xl font-bold mb-4">1. Overview</h2>
           <p className="mb-4">
-            Flank is a strategic board game played on a grid of connected squares, such as a standard chessboard. 
-            Supporting 2–4 players, each controlling 1–8 blocks (4 blocks recommended per player), the objective 
-            is to eliminate opposing blocks with flanking moves and be the last player with blocks remaining.
+          Objective: Eliminate opposing blocks with a flanking move. Be the last player with any blocks remaining.
           </p>
         </section>
 
