@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body {
+.game-container {
+  height: 100vh;
+  overflow: auto;
+}
+
+/* Only prevent scrolling when using game controls */
+.prevent-scroll {
   overflow: hidden;
 } 

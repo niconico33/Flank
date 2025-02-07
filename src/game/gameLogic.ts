@@ -18,22 +18,22 @@ function getDefaultSetup(numPlayers: number) {
   const defaultState: GameState = {
     boardSize: 8,
     blocks: {
-      '0': [], // Player 0's blocks (human)
-      '1': [], // Player 1's blocks (AI)
+      '1': [], // Player 1's blocks (human)
+      '2': [], // Player 2's blocks (AI)
     },
   }
-
-  // Player 0's blocks at top side
-  defaultState.blocks['0'].push({ x: 2, y: 0, direction: 'down' })
-  defaultState.blocks['0'].push({ x: 3, y: 0, direction: 'down' })
-  defaultState.blocks['0'].push({ x: 4, y: 0, direction: 'down' })
-  defaultState.blocks['0'].push({ x: 5, y: 0, direction: 'down' })
 
   // Player 1's blocks at bottom side
   defaultState.blocks['1'].push({ x: 2, y: 7, direction: 'up' })
   defaultState.blocks['1'].push({ x: 3, y: 7, direction: 'up' })
   defaultState.blocks['1'].push({ x: 4, y: 7, direction: 'up' })
   defaultState.blocks['1'].push({ x: 5, y: 7, direction: 'up' })
+
+  // Player 2's blocks at top side
+  defaultState.blocks['2'].push({ x: 2, y: 0, direction: 'down' })
+  defaultState.blocks['2'].push({ x: 3, y: 0, direction: 'down' })
+  defaultState.blocks['2'].push({ x: 4, y: 0, direction: 'down' })
+  defaultState.blocks['2'].push({ x: 5, y: 0, direction: 'down' })
 
   return defaultState
 }
@@ -68,71 +68,54 @@ function findBlockOwner(G: GameState, x: number, y: number) {
   return null
 }
 
-// Determination of nose vs. body collision
-// The "nose" is in the direction the block faces
-// "Body" is any other side
-// If we do a step onto an opponent's square, figure out if it's nose vs body or nose vs nose, etc.
+// Helper to determine if a direction matches the approach vector
+function isNose(direction: Block['direction'], approach: { dx: number; dy: number }) {
+  switch (direction) {
+    case 'up':    return approach.dx === 0 && approach.dy === -1;
+    case 'down':  return approach.dx === 0 && approach.dy === 1;
+    case 'left':  return approach.dx === -1 && approach.dy === 0;
+    case 'right': return approach.dx === 1 && approach.dy === 0;
+    default:      return false;
+  }
+}
+
+// Resolve collision to see who is removed.
+// If attackerNose & defenderNose => remove attacker
+// If attackerNose & !defenderNose => remove defender
+// Otherwise => remove attacker
 function resolveCollision(
   G: GameState,
   attackerP: string,
   attackerIdx: number,
   defenderP: string,
-  defenderIdx: number
-) {
-  const attacker = G.blocks[attackerP][attackerIdx]
-  const defender = G.blocks[defenderP][defenderIdx]
+  defenderIdx: number,
+  approachDX: number,
+  approachDY: number
+): { removedAttacker: boolean; removedDefender: boolean } {
+  const attacker = G.blocks[attackerP][attackerIdx];
+  const defender = G.blocks[defenderP][defenderIdx];
 
-  // If attacker steps onto the square, see how we approached the defender
-  // We'll see if the step direction matches "attacker.direction"
-  // Then see how that compares with defender.direction
-  // Nose vs body is valid flank => remove defender
-  // Nose vs nose or body vs body => remove attacker
+  // Determine if attacker approached with nose facing the defender
+  const attackerNose = isNose(attacker.direction, { dx: approachDX, dy: approachDY });
 
-  // For simplicity, let's interpret direction as:
-  // - up => nose is from above, body is from left, right, down
-  // - down => nose is from below, body is from left, right, up
-  // - left => nose is from left, body is from up, down, right
-  // - right => nose is from right, body is from up, down, left
+  // Determine if defender's nose was facing the attacker
+  const defenderNose = isNose(defender.direction, { dx: -approachDX, dy: -approachDY });
 
-  // Determine the "approach" direction from attacker relative to the defender
-  const dx = attacker.x - defender.x
-  const dy = attacker.y - defender.y
-
-  // This means the attacker came from somewhere
-  // (dx, dy) = (1, 0) => attacker is to the right of defender
-  // (dx, dy) = (-1, 0) => attacker is to the left
-  // (dx, dy) = (0, 1) => attacker is below
-  // (dx, dy) = (0, -1) => attacker is above
-
-  function isNose(direction: Block['direction'], approach: { dx: number; dy: number }) {
-    if (direction === 'up' && approach.dy === 1) return true // attacker approached from below => nose is up
-    if (direction === 'down' && approach.dy === -1) return true
-    if (direction === 'left' && approach.dx === 1) return true
-    if (direction === 'right' && approach.dx === -1) return true
-    return false
-  }
-
-  const attackerNose = isNose(attacker.direction, { dx: -dx, dy: -dy })
-  // attacker approached the square from the opposite direction of (dx, dy),
-  // so we invert them for the "approach direction" from attacker's viewpoint
-
-  const defenderNose = isNose(defender.direction, { dx, dy })
-
-  // If attackerNose vs. defenderNose => nose-on-nose => attacker is removed
+  // If attacker nose vs. defender nose => remove the attacker
   if (attackerNose && defenderNose) {
-    // remove the attacker
-    G.blocks[attackerP].splice(attackerIdx, 1)
-    return
+    G.blocks[attackerP].splice(attackerIdx, 1);
+    return { removedAttacker: true, removedDefender: false };
   }
 
-  // If attackerNose vs. NOT defenderNose => remove defender
+  // If attacker nose vs. defender body => remove defender
   if (attackerNose && !defenderNose) {
-    G.blocks[defenderP].splice(defenderIdx, 1)
-    return
+    G.blocks[defenderP].splice(defenderIdx, 1);
+    return { removedAttacker: false, removedDefender: true };
   }
 
-  // Otherwise, it's body-on-body or body vs nose => attacker is removed
-  G.blocks[attackerP].splice(attackerIdx, 1)
+  // Otherwise (body vs. body, or body vs. nose) => remove attacker
+  G.blocks[attackerP].splice(attackerIdx, 1);
+  return { removedAttacker: true, removedDefender: false };
 }
 
 export const FlankGame: Game<GameState> = {
@@ -142,16 +125,63 @@ export const FlankGame: Game<GameState> = {
     return getDefaultSetup(ctx.numPlayers)
   },
 
-  // Each turn: up to 3 moves
+  // Each turn: effectively no limit since we'll handle it client-side
   turn: {
-    moveLimit: 3,
+    moveLimit: 9999,
     order: {
-      first: () => 0,
+      first: () => 1, // Start with Player 1 (human)
       next: (context: FnContext<GameState>) => {
-        const playerOrder = ['0', '1'];
+        const playerOrder = ['1', '2'];
         const currentIdx = playerOrder.indexOf(context.ctx.currentPlayer);
-        return (currentIdx + 1) % playerOrder.length;
+        return (currentIdx + 1) % playerOrder.length + 1;
       }
+    }
+  },
+
+  ai: {
+    enumerate: (G: GameState, ctx: any) => {
+      const moves: Array<{
+        move: string;
+        args?: any;
+      }> = [];
+      const playerID = ctx.currentPlayer;
+      const blocks = G.blocks[playerID];
+
+      // First, add all possible moves for each block
+      blocks.forEach((block, blockIndex) => {
+        // Add rotation moves
+        moves.push({ move: 'pivotBlock', args: { playerID, blockIndex, direction: 'left' } });
+        moves.push({ move: 'pivotBlock', args: { playerID, blockIndex, direction: 'right' } });
+
+        // Add movement moves
+        const directions = [
+          { dx: 0, dy: -1 },  // up
+          { dx: 0, dy: 1 },   // down
+          { dx: -1, dy: 0 },  // left
+          { dx: 1, dy: 0 },   // right
+        ];
+
+        directions.forEach(({ dx, dy }) => {
+          const targetX = block.x + dx;
+          const targetY = block.y + dy;
+          // Check if move is within board bounds
+          if (targetX >= 0 && targetX < G.boardSize && targetY >= 0 && targetY < G.boardSize) {
+            // Check if target square is occupied by own piece
+            const occupant = findBlockOwner(G, targetX, targetY);
+            if (!occupant || occupant.pID !== playerID) {
+              moves.push({
+                move: 'stepBlock',
+                args: { playerID, blockIndex, targetX, targetY }
+              });
+            }
+          }
+        });
+      });
+
+      // Always add end turn as a possible move
+      moves.push({ move: 'endTurn' });
+
+      return moves;
     }
   },
 
@@ -177,41 +207,62 @@ export const FlankGame: Game<GameState> = {
       // Check adjacency (orthogonal only)
       const dist = Math.abs(block.x - targetX) + Math.abs(block.y - targetY);
       if (dist !== 1) {
-        // Not an adjacent square, do nothing
         return;
       }
 
-      // Attempt move
-      const occupant = findBlockOwner(G, targetX, targetY);
-
-      // Temporarily store old position
+      // Record old position for approach vector
       const oldX = block.x;
       const oldY = block.y;
+      const approachDX = targetX - oldX;
+      const approachDY = targetY - oldY;
 
-      block.x = targetX;
-      block.y = targetY;
-
+      // Check occupant first
+      const occupant = findBlockOwner(G, targetX, targetY);
       if (occupant) {
-        // There's an opponent block or your own block?
+        // Occupant belongs to same player => invalid move
         if (occupant.pID === playerID) {
-          // That means you're trying to move into your own block => invalid or no effect
-          // Revert
-          block.x = oldX;
-          block.y = oldY;
           return;
         } else {
-          // Attack scenario
-          resolveCollision(G, playerID, blockIndex, occupant.pID, occupant.i);
+          // Attempt an attack
+          const result = resolveCollision(
+            G,
+            playerID,
+            blockIndex,
+            occupant.pID,
+            occupant.i,
+            approachDX,
+            approachDY
+          );
+
+          // If the defender was removed, the attacker takes the square
+          if (!result.removedAttacker && result.removedDefender) {
+            block.x = targetX;
+            block.y = targetY;
+          }
         }
+      } else {
+        // No occupant, just move
+        block.x = targetX;
+        block.y = targetY;
       }
     },
 
-    endTurn: (context) => {
-      const { events } = context;
+    endTurn: ({ events }) => {
       if (events?.endTurn) {
         events.endTurn();
       }
     },
+
+    // New move to commit the entire ephemeral arrangement from the client
+    commitTurn: (context, args: { newBlocks: Block[] }) => {
+      const { G, ctx, events } = context;
+      if (!ctx.currentPlayer || !args?.newBlocks) return;
+
+      G.blocks[ctx.currentPlayer] = args.newBlocks;
+      if (events?.endTurn) {
+        events.endTurn();
+      }
+    }
   },
 
   endIf: ({ G }: { G: GameState }) => {

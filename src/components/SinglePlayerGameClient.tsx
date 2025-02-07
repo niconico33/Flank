@@ -1,21 +1,17 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { Client } from 'boardgame.io/react';
 import { RandomBot } from 'boardgame.io/ai';
+import { Local } from 'boardgame.io/multiplayer';
 import { FlankGame } from '../game/gameLogic';
-import type { GameState } from '../game/gameLogic';
+import type { BoardProps } from 'boardgame.io/react';
 import GameBoard from './GameBoard';
-import { BoardProps } from 'boardgame.io/react';
 
 interface GameBoardWrapperProps extends Omit<BoardProps, 'moves'> {
   isGameStarted: boolean;
   setIsGameStarted: (started: boolean) => void;
-  moves: {
-    pivotBlock: (args: { playerID: string; blockIndex: number; direction: 'left' | 'right' }) => void;
-    stepBlock: (args: { playerID: string; blockIndex: number; targetX: number; targetY: number }) => void;
-    endTurn: () => void;
-  };
+  moves: any;
 }
 
 function GameBoardWrapper(props: GameBoardWrapperProps) {
@@ -35,27 +31,31 @@ function GameBoardWrapper(props: GameBoardWrapperProps) {
 export default function SinglePlayerGameClient() {
   const [isGameStarted, setIsGameStarted] = useState(false);
 
-  // Create the single-player client with an AI for player 1
-  const FlankSinglePlayer = Client<GameState>({
+  // Create the single-player client for user (Player 1) vs AI (Player 2).
+  // Attach RandomBot to player '2' in Local to automate AI moves.
+  const FlankSinglePlayer = Client({
     game: FlankGame,
     board: (props: BoardProps) => (
-      <GameBoardWrapper {...props as any} isGameStarted={isGameStarted} setIsGameStarted={setIsGameStarted} />
+      <GameBoardWrapper
+        {...(props as any)}
+        isGameStarted={isGameStarted}
+        setIsGameStarted={setIsGameStarted}
+      />
     ),
-    debug: false,
+    debug: true,
     numPlayers: 2,
-    // Let the AI control player 1
-    ai: {
+    multiplayer: Local({
       bots: {
-        '1': RandomBot,
+        '2': RandomBot, // Assign the AI bot to player 2
       },
-    },
+    }),
   });
 
   return (
-    <div className="flex flex-col justify-center items-center p-4">
-      <h2 className="text-xl font-bold mb-4 text-center">User vs FlankBoss</h2>
+    <div className="game-container flex flex-col justify-center items-center p-4">
+      <h2 className="text-xl font-bold mb-4 text-center">Player 1 (You) vs. Player 2 (AI)</h2>
       <div className="w-full md:w-5/6 lg:w-3/4 xl:w-2/3 border p-4 rounded shadow bg-white">
-        <FlankSinglePlayer playerID="0" />
+        <FlankSinglePlayer playerID="1" />
       </div>
     </div>
   );

@@ -2,14 +2,9 @@
 
 import { Ctx } from 'boardgame.io';
 import { MoveFn } from 'boardgame.io/dist/types/src/types';
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { EventsAPI } from 'boardgame.io/dist/types/src/plugins/events/events';
-
-interface Block {
-  x: number;
-  y: number;
-  direction: 'up' | 'down' | 'left' | 'right';
-}
+import { Block } from '../game/gameLogic';
 
 interface PlayerBlocks {
   [playerID: string]: Block[];
@@ -22,10 +17,12 @@ interface FlankGameState {
 
 interface GameBoardProps {
   G: FlankGameState;
-  ctx: Ctx & { events?: { endTurn: () => void } };
+  ctx: Ctx & { events?: { endTurn?: () => void } };
   moves: {
     pivotBlock: (args: any) => void;
     stepBlock: (args: any) => void;
+    endTurn: () => void;
+    commitTurn: (args: { newBlocks: Block[] }) => void;
   };
   playerID?: string;
   isActive?: boolean;
@@ -33,218 +30,359 @@ interface GameBoardProps {
   setIsGameStarted: (started: boolean) => void;
 }
 
-export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameStarted, setIsGameStarted }: GameBoardProps) {
+export default function GameBoard({
+  G,
+  ctx,
+  moves,
+  playerID,
+  isActive,
+  isGameStarted,
+  setIsGameStarted,
+}: GameBoardProps) {
+  // Board + Blocks from G (actual "official" state)
   const { boardSize, blocks } = G;
-  const [selected, setSelected] = useState<{ blockIndex: number; playerID: string } | null>(null);
-  const [isHighlighted, setIsHighlighted] = useState(false);
 
-  const currentPlayerBlocks = blocks[playerID || '0'] || [];
+  // We track ephemeral blocks and ephemeral movesUsed for the *human player*
+  // so that the user can "test" up to 3 moves, reset with 'e', or confirm with Enter.
+  // The AI doesn't do ephemeral. It's normal moves from the server side.
+  const [ephemeralBlocks, setEphemeralBlocks] = useState<Block[]>([]);
+  const [movesUsed, setMovesUsed] = useState(0);
+  const maxMovesPerTurn = 3;
 
-  // Handle Enter key to start game
+  // We'll also store the original blocks for the player's turn to allow 'e' to revert.
+  const [turnStartBlocks, setTurnStartBlocks] = useState<Block[]>([]);
+
+  // Keep track if game is over
+  const gameOver = !!ctx.gameover;
+
+  // Identify if I'm "player 1" (the user) or not
+  const isUser = playerID === '1';
+
+  // On each new state from boardgame.io, if it's my turn and I'm the user,
+  // refresh ephemeral blocks to match my official blocks, but only if the game isn't over.
   useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && !isGameStarted) {
+    if (!gameOver && isUser && ctx.currentPlayer === playerID) {
+      const myBlocks = blocks[playerID!] || [];
+      setEphemeralBlocks(JSON.parse(JSON.stringify(myBlocks)));
+      setTurnStartBlocks(JSON.parse(JSON.stringify(myBlocks)));
+      setMovesUsed(0);
+    }
+  }, [blocks, ctx.currentPlayer, gameOver, isUser, playerID]);
+
+  // If the user is not the current player or the game is over,
+  // ephemeral blocks should simply reflect the official data.
+  useEffect(() => {
+    if (gameOver) {
+      // Show final board
+      return;
+    }
+    if (!isUser || ctx.currentPlayer !== playerID) {
+      // We are not making ephemeral moves => display official
+      // so user sees AI's final positions or other players' positions
+      if (playerID && blocks[playerID]) {
+        // Just do nothing for ephemeral. We won't modify ephemeral in that scenario.
+        setEphemeralBlocks([]);
+        setTurnStartBlocks([]);
+        setMovesUsed(0);
+      }
+    }
+  }, [gameOver, ctx.currentPlayer, isUser, playerID, blocks]);
+
+  // On first mount, also set up "Press Enter to Start" logic
+  useEffect(() => {
+    const handlePress = (e: KeyboardEvent) => {
+      if (!isGameStarted && !gameOver && e.key === 'Enter') {
         setIsGameStarted(true);
       }
     };
+    window.addEventListener('keydown', handlePress);
+    return () => window.removeEventListener('keydown', handlePress);
+  }, [isGameStarted, setIsGameStarted, gameOver]);
 
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [isGameStarted, setIsGameStarted]);
+  // *** KEY HANDLERS *** //
+  // We only do ephemeral movement if isActive, isUser, game not over, game started, and it's our turn.
+  const canEphemeralMove =
+    isActive && isUser && !gameOver && isGameStarted && ctx.currentPlayer === playerID;
 
-  // Auto-select first piece when game starts
-  useEffect(() => {
-    if (isGameStarted && isActive && playerID && !selected) {
-      setSelected({ blockIndex: 0, playerID });
-    }
-  }, [isGameStarted, isActive, playerID, selected]);
+  // Helper function to pivot ephemeral block
+  const ephemeralPivotBlock = (direction: 'left' | 'right') => {
+    if (!canEphemeralMove) return;
+    if (movesUsed >= maxMovesPerTurn) return;
 
-  // Get the current piece label (A1-A4 or B1-B4)
-  const getCurrentPieceLabel = () => {
-    if (!selected || !playerID) return null;
-    return `${playerID}${selected.blockIndex + 1}`;
+    // If no ephemeral block is selected, pivot the first one by default
+    if (selectedBlockIndex === null) return;
+
+    const updated = JSON.parse(JSON.stringify(ephemeralBlocks)) as Block[];
+    const block = updated[selectedBlockIndex];
+    if (!block) return;
+
+    // pivot
+    block.direction = pivotDirection(block.direction, direction);
+    setEphemeralBlocks(updated);
+    setMovesUsed(movesUsed + 1);
   };
 
-  // Toggle to next piece
-  const toggleNextPiece = () => {
-    if (!playerID || !isActive) return;
-    
-    const currentBlocks = blocks[playerID];
-    if (!currentBlocks || currentBlocks.length === 0) return;
-
-    if (!selected) {
-      // If nothing selected, select the first piece
-      setSelected({ blockIndex: 0, playerID });
-    } else {
-      // Move to next piece or wrap around
-      const nextIndex = (selected.blockIndex + 1) % currentBlocks.length;
-      setSelected({ blockIndex: nextIndex, playerID });
-    }
+  // pivot logic
+  const pivotDirection = (
+    current: 'up' | 'down' | 'left' | 'right',
+    turn: 'left' | 'right'
+  ) => {
+    const leftMap: Record<Block['direction'], Block['direction']> = {
+      up: 'left',
+      left: 'down',
+      down: 'right',
+      right: 'up',
+    };
+    const rightMap: Record<Block['direction'], Block['direction']> = {
+      up: 'right',
+      right: 'down',
+      down: 'left',
+      left: 'up',
+    };
+    return turn === 'left' ? leftMap[current] : rightMap[current];
   };
 
-  // Helper to find the occupant of a cell
-  function findBlockOwner(x: number, y: number): { player: string; index: number } | null {
-    for (const pID of Object.keys(blocks)) {
-      for (let i = 0; i < blocks[pID].length; i++) {
-        const b = blocks[pID][i];
+  // ephemeral step
+  const ephemeralStepBlock = (dx: number, dy: number) => {
+    if (!canEphemeralMove) return;
+    if (movesUsed >= maxMovesPerTurn) return;
+
+    if (selectedBlockIndex === null) return;
+    const updated = JSON.parse(JSON.stringify(ephemeralBlocks)) as Block[];
+    const block = updated[selectedBlockIndex];
+    if (!block) return;
+
+    // Move it orthogonally by dx, dy
+    const newX = block.x + dx;
+    const newY = block.y + dy;
+    // board boundary check
+    if (newX < 0 || newX >= boardSize || newY < 0 || newY >= boardSize) return;
+
+    // We do not do "attacks" ephemeral. This is just a visual positioning guess for the user.
+    // We'll allow the user to step into squares. If there's a *friendly* occupant, we won't allow it.
+    // If there's an enemy occupant, we also won't allow it here in ephemeral mode. (User can see a potential move.)
+    // For simplicity, let's forbid stepping onto ANY occupant in ephemeral mode.
+
+    // Check occupant among ephemeral blocks of both players?
+    // Actually let's check ephemeral blocks for the *user's own pieces*, but the AI's squares are from G.
+    // We'll keep it simple: if ephemeral or official squares are occupied, block the step.
+    if (findAnyOccupantInEphemeralOrOfficial(newX, newY)) {
+      return;
+    }
+
+    block.x = newX;
+    block.y = newY;
+
+    setEphemeralBlocks(updated);
+    setMovesUsed(movesUsed + 1);
+  };
+
+  // Occupant check for ephemeral (my pieces) and official (everyone else).
+  const findAnyOccupantInEphemeralOrOfficial = (x: number, y: number) => {
+    // Check ephemeral blocks (my pieces)
+    for (let i = 0; i < ephemeralBlocks.length; i++) {
+      const b = ephemeralBlocks[i];
+      if (b.x === x && b.y === y) {
+        return true;
+      }
+    }
+    // Check official blocks of other players
+    const otherPlayers = Object.keys(blocks).filter((p) => p !== playerID);
+    for (const p of otherPlayers) {
+      for (const b of blocks[p]) {
         if (b.x === x && b.y === y) {
-          return { player: pID, index: i };
+          return true;
         }
       }
     }
-    return null;
-  }
-
-  // For occupant color and label
-  function getOccupantLabelAndColor(pID: string, direction: string, index: number) {
-    const label = `P${pID}${index + 1}`;
-    let arrow = '↑';
-    if (direction === 'down') arrow = '↓';
-    if (direction === 'left') arrow = '←';
-    if (direction === 'right') arrow = '→';
-
-    const colorMap: Record<string, string> = {
-      '0': 'text-blue-500',
-      '1': 'text-red-500'
-    };
-
-    const colorClass = colorMap[pID] || 'text-gray-500';
-    return { display: `${label}${arrow}`, colorClass };
-  }
-
-  const handleCellClick = (x: number, y: number) => {
-    if (!isActive || !playerID || !isGameStarted) return;
-
-    const occupant = findBlockOwner(x, y);
-
-    // If there's a block in this cell belonging to you, select/deselect it
-    if (occupant && occupant.player === playerID) {
-      if (selected && selected.blockIndex === occupant.index && selected.playerID === occupant.player) {
-        setSelected(null); // Deselect if clicking the same piece
-      } else {
-        setSelected({ blockIndex: occupant.index, playerID: occupant.player }); // Select new piece
-      }
-    } else if (selected) {
-      // Attempt to move to the clicked cell
-      moves.stepBlock({ 
-        playerID, 
-        blockIndex: selected.blockIndex, 
-        targetX: x, 
-        targetY: y 
-      });
-    }
+    return false;
   };
 
-  // Handle keyboard controls
+  // ephemeral reset
+  const ephemeralReset = () => {
+    if (!canEphemeralMove) return;
+    // revert ephemeralBlocks to turnStartBlocks
+    setEphemeralBlocks(JSON.parse(JSON.stringify(turnStartBlocks)));
+    setMovesUsed(0);
+  };
+
+  // ephemeral commit => call commitTurn => endTurn
+  const ephemeralCommit = () => {
+    if (!canEphemeralMove) return;
+    moves.commitTurn({ newBlocks: ephemeralBlocks });
+  };
+
+  // If game is over, pressing Enter should reload or reset the game
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isActive || !playerID || !isGameStarted) return;
-
-      // Prevent scrolling on arrow keys and other game controls
-      if (
-        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'd', 'f', 't', 'Enter'].includes(e.key)
-      ) {
-        e.preventDefault();
+      // If game not started, we allow Enter to start as well
+      if (e.key === 'Enter' && gameOver) {
+        // Reload page to start a new game or we could call a client reset
+        window.location.reload();
       }
 
-      // If no piece is selected and not pressing 't' or Enter, do nothing
-      if (!selected && !['t', 'Enter'].includes(e.key)) return;
+      // If not my turn or game not started or game is over, ignore controls
+      if (!canEphemeralMove) return;
 
       switch (e.key) {
-        case 'ArrowUp': {
-          const block = blocks[playerID][selected?.blockIndex || 0];
-          if (block) {
-            moves.stepBlock({ 
-              playerID, 
-              blockIndex: selected?.blockIndex || 0, 
-              targetX: block.x, 
-              targetY: block.y - 1 
-            });
-          }
+        // Movement
+        case 'ArrowUp':
+          e.preventDefault();
+          ephemeralStepBlock(0, -1);
           break;
-        }
-        case 'ArrowDown': {
-          const block = blocks[playerID][selected?.blockIndex || 0];
-          if (block) {
-            moves.stepBlock({ 
-              playerID, 
-              blockIndex: selected?.blockIndex || 0, 
-              targetX: block.x, 
-              targetY: block.y + 1 
-            });
-          }
+        case 'ArrowDown':
+          e.preventDefault();
+          ephemeralStepBlock(0, 1);
           break;
-        }
-        case 'ArrowLeft': {
-          const block = blocks[playerID][selected?.blockIndex || 0];
-          if (block) {
-            moves.stepBlock({ 
-              playerID, 
-              blockIndex: selected?.blockIndex || 0, 
-              targetX: block.x - 1, 
-              targetY: block.y 
-            });
-          }
+        case 'ArrowLeft':
+          e.preventDefault();
+          ephemeralStepBlock(-1, 0);
           break;
-        }
-        case 'ArrowRight': {
-          const block = blocks[playerID][selected?.blockIndex || 0];
-          if (block) {
-            moves.stepBlock({ 
-              playerID, 
-              blockIndex: selected?.blockIndex || 0, 
-              targetX: block.x + 1, 
-              targetY: block.y 
-            });
-          }
+        case 'ArrowRight':
+          e.preventDefault();
+          ephemeralStepBlock(1, 0);
           break;
-        }
-        case 'd':
-          moves.pivotBlock({ 
-            playerID, 
-            blockIndex: selected?.blockIndex || 0, 
-            direction: 'left' 
-          });
+
+        // Pivot
+        case 'f': // f => clockwise
+          e.preventDefault();
+          ephemeralPivotBlock('right');
           break;
-        case 'f':
-          moves.pivotBlock({ 
-            playerID, 
-            blockIndex: selected?.blockIndex || 0, 
-            direction: 'right' 
-          });
+        case 'd': // d => counterclockwise
+          e.preventDefault();
+          ephemeralPivotBlock('left');
           break;
-        case 't':
-          toggleNextPiece();
+
+        // Reset ephemeral
+        case 'e':
+          e.preventDefault();
+          ephemeralReset();
           break;
+
+        // Commit ephemeral and end turn
         case 'Enter':
-          if (!isGameStarted) {
-            setIsGameStarted(true);
-          } else {
-            ctx.events?.endTurn();
-          }
+          e.preventDefault();
+          ephemeralCommit();
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isActive, playerID, isGameStarted, selected, blocks, moves, ctx.events, toggleNextPiece]);
+  }, [
+    canEphemeralMove,
+    ephemeralStepBlock,
+    ephemeralPivotBlock,
+    ephemeralReset,
+    ephemeralCommit,
+    gameOver,
+  ]);
 
+  // *** Selecting pieces *** //
+  // We'll let the user cycle which ephemeral block is selected or click on them
+  const [selectedBlockIndex, setSelectedBlockIndex] = useState<number | null>(null);
+
+  // If it becomes a new turn, default selected block to 0 if any exist
+  useEffect(() => {
+    if (canEphemeralMove) {
+      setSelectedBlockIndex(ephemeralBlocks.length > 0 ? 0 : null);
+    } else {
+      setSelectedBlockIndex(null);
+    }
+  }, [canEphemeralMove, ephemeralBlocks]);
+
+  const toggleNextPiece = () => {
+    if (!canEphemeralMove) return;
+    if (ephemeralBlocks.length === 0) return;
+    if (selectedBlockIndex === null) {
+      setSelectedBlockIndex(0);
+    } else {
+      setSelectedBlockIndex((selectedBlockIndex + 1) % ephemeralBlocks.length);
+    }
+  };
+
+  // We'll let user click on squares that contain their ephemeral block to select that piece
+  const handleCellClick = (x: number, y: number) => {
+    if (!canEphemeralMove) return;
+    // find ephemeral occupant
+    for (let i = 0; i < ephemeralBlocks.length; i++) {
+      const b = ephemeralBlocks[i];
+      if (b.x === x && b.y === y) {
+        setSelectedBlockIndex(i);
+        return;
+      }
+    }
+    // otherwise do nothing on click
+  };
+
+  // Helper to see who occupies a cell for display
+  // For the user, if it's the current turn, show ephemeral occupant.
+  // For other players or if not user, show official occupant.
+  const findOccupant = (x: number, y: number) => {
+    // If it's user turn, ephemeral blocks have priority for this player's occupant
+    if (isUser && ctx.currentPlayer === playerID && !gameOver) {
+      for (let i = 0; i < ephemeralBlocks.length; i++) {
+        const b = ephemeralBlocks[i];
+        if (b.x === x && b.y === y) {
+          return { pID: playerID!, index: i, ephemeral: true, direction: b.direction };
+        }
+      }
+    }
+    // Otherwise or if no ephemeral occupant, check official G for occupant
+    for (const pID of Object.keys(blocks)) {
+      for (let i = 0; i < blocks[pID].length; i++) {
+        const b = blocks[pID][i];
+        if (b.x === x && b.y === y) {
+          return { pID, index: i, ephemeral: false, direction: b.direction };
+        }
+      }
+    }
+    return null;
+  };
+
+  // For occupant color and label
+  function getOccupantLabelAndColor(
+    pID: string,
+    direction: string,
+    index: number,
+    ephemeral: boolean
+  ) {
+    // We'll label them "P1-1, P1-2..." or "P2-1, P2-2..."
+    const label = `P${pID}-${index + 1}`;
+    let arrow = '↑';
+    if (direction === 'down') arrow = '↓';
+    if (direction === 'left') arrow = '←';
+    if (direction === 'right') arrow = '→';
+
+    const colorMap: Record<string, string> = {
+      '1': ephemeral ? 'text-blue-600' : 'text-blue-400',
+      '2': ephemeral ? 'text-red-600' : 'text-red-400',
+    };
+
+    const colorClass = colorMap[pID] || 'text-gray-500';
+    return { display: `${label}${arrow}`, colorClass };
+  }
+
+  // *** RENDERING *** //
   return (
     <div className="flex items-start justify-center space-x-8">
       {/* Game Board */}
       <div className="relative">
-        <div className={`grid grid-cols-8 transition-all duration-300 ${!isGameStarted ? 'opacity-80' : ''}`}>
+        <div
+          className={`grid grid-cols-8 transition-all duration-300 ${
+            !isGameStarted && !gameOver ? 'opacity-80' : ''
+          }`}
+        >
           {Array.from({ length: boardSize }).map((_, rowIdx) => (
             <div key={`row-${rowIdx}`} className="contents">
               {Array.from({ length: boardSize }).map((__, colIdx) => {
-                const occupant = findBlockOwner(colIdx, rowIdx);
+                const occupant = findOccupant(colIdx, rowIdx);
                 let display = '';
                 let colorClass = '';
 
                 if (occupant) {
-                  const block = blocks[occupant.player][occupant.index];
-                  const result = getOccupantLabelAndColor(occupant.player, block.direction, occupant.index);
+                  const { pID, index, ephemeral, direction } = occupant;
+                  const result = getOccupantLabelAndColor(pID, direction, index, ephemeral);
                   display = result.display;
                   colorClass = result.colorClass;
                 }
@@ -253,22 +391,25 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
                 const bgColor = isLightSquare ? 'bg-amber-200' : 'bg-amber-800';
 
                 const isSelected =
-                  selected &&
                   occupant &&
-                  occupant.player === selected.playerID &&
-                  occupant.index === selected.blockIndex;
+                  occupant.pID === playerID &&
+                  occupant.ephemeral === true &&
+                  selectedBlockIndex !== null &&
+                  occupant.index === selectedBlockIndex;
 
                 return (
                   <div
                     key={`${rowIdx}-${colIdx}`}
                     className={`w-16 h-16 border border-amber-900 flex items-center justify-center ${bgColor} ${
-                      isSelected ? 'ring-4 ring-yellow-400 bg-yellow-200' : occupant ? 'hover:ring-2 hover:ring-yellow-400' : ''
+                      isSelected
+                        ? 'ring-4 ring-yellow-400 bg-yellow-200'
+                        : occupant
+                        ? 'hover:ring-2 hover:ring-yellow-400'
+                        : ''
                     }`}
                     onClick={() => handleCellClick(colIdx, rowIdx)}
                   >
-                    <span className={`text-2xl font-bold ${colorClass}`}>
-                      {display}
-                    </span>
+                    <span className={`text-sm font-bold ${colorClass}`}>{display}</span>
                   </div>
                 );
               })}
@@ -277,7 +418,7 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
         </div>
 
         {/* Start Game Overlay */}
-        {!isGameStarted && (
+        {!isGameStarted && !gameOver && (
           <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30">
             <div className="bg-white p-6 rounded-lg shadow-lg text-center transform transition-all hover:scale-105">
               <h3 className="text-2xl font-bold mb-2">Ready to Play?</h3>
@@ -288,102 +429,103 @@ export default function GameBoard({ G, ctx, moves, playerID, isActive, isGameSta
             </div>
           </div>
         )}
+
+        {/* Game Over Overlay */}
+        {gameOver && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-40">
+            <div className="bg-white p-6 rounded-lg shadow-xl text-center">
+              {(() => {
+                if (ctx.gameover?.draw) return <h3 className="text-2xl font-bold">Draw!</h3>;
+                if (ctx.gameover?.winner) {
+                  // We are Player 1. If winner is '1', we say "Winner!"
+                  // If winner is '2', we say "Loser"
+                  return ctx.gameover.winner === '1' ? (
+                    <h3 className="text-2xl font-bold text-green-700">Winner!</h3>
+                  ) : (
+                    <h3 className="text-2xl font-bold text-red-700">Loser!</h3>
+                  );
+                }
+                return null;
+              })()}
+              <p className="text-gray-700 mt-2">Press Enter to play again.</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Controls Panel */}
       <div className="bg-white p-6 rounded-lg shadow-md w-72">
         <h3 className="text-lg font-bold mb-4">Game Controls</h3>
-        
-        {/* Current Piece Display */}
-        <div className="mb-6 p-3 bg-gray-50 rounded-lg">
+
+        {/* Selected Piece */}
+        <div className="mb-4 p-3 bg-gray-50 rounded-lg">
           <h4 className="font-semibold mb-2 text-gray-700">Selected Piece</h4>
           <div className="flex items-center justify-between mb-2">
-            <span className={`text-2xl font-bold ${selected ? (playerID === '0' ? 'text-blue-500' : 'text-red-500') : 'text-gray-400'}`}>
-              {getCurrentPieceLabel() || 'None'}
+            <span
+              className={`text-md font-bold ${
+                selectedBlockIndex !== null ? 'text-blue-700' : 'text-gray-400'
+              }`}
+            >
+              {selectedBlockIndex !== null
+                ? `Piece #${selectedBlockIndex + 1}`
+                : 'None'}
             </span>
             <button
               onClick={toggleNextPiece}
               className={`px-3 py-1 rounded ${
-                isActive ? 'bg-indigo-500 text-white hover:bg-indigo-600' : 'bg-gray-200 text-gray-500'
+                canEphemeralMove
+                  ? 'bg-indigo-500 text-white hover:bg-indigo-600'
+                  : 'bg-gray-200 text-gray-500'
               } transition-colors`}
-              disabled={!isActive}
+              disabled={!canEphemeralMove}
             >
-              Next (T)
+              Next
             </button>
           </div>
           <p className="text-sm text-gray-600">
-            Click on your piece or press T to select different pieces. Selected piece will have a yellow highlight.
+            Click on your piece or press the Next button to change selection.
           </p>
         </div>
 
-        <div className={`space-y-6 ${!isGameStarted ? 'opacity-75' : ''}`}>
-          <div>
-            <h4 className="font-semibold mb-3 text-gray-700">Movement Controls</h4>
-            <div className="grid grid-cols-3 gap-2 place-items-center mb-2">
-              <div></div>
-              <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300">
-                <span className="font-mono">↑</span>
-              </div>
-              <div></div>
-              <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300">
-                <span className="font-mono">←</span>
-              </div>
-              <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300">
-                <span className="font-mono">↓</span>
-              </div>
-              <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300">
-                <span className="font-mono">→</span>
-              </div>
-            </div>
-            <p className="text-sm text-gray-600 text-center">Move Selected Piece</p>
-          </div>
+        {/* Movement Info */}
+        <div className="mb-4">
+          <h4 className="font-semibold mb-2">Movement Keys</h4>
+          <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700">
+            <li>
+              <strong>Arrow Keys:</strong> Move piece (step)
+            </li>
+            <li>
+              <strong>d:</strong> Rotate counterclockwise
+            </li>
+            <li>
+              <strong>f:</strong> Rotate clockwise
+            </li>
+            <li>
+              <strong>e:</strong> Reset ephemeral moves
+            </li>
+            <li>
+              <strong>Enter:</strong> Commit turn (or start game / restart if game over)
+            </li>
+          </ul>
+        </div>
 
-          <div>
-            <h4 className="font-semibold mb-3 text-gray-700">Rotation Controls</h4>
-            <div className="flex justify-center space-x-4">
-              <div className="text-center">
-                <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300 mb-1">
-                  <span className="font-mono">D</span>
-                </div>
-                <p className="text-sm text-gray-600">Rotate Left</p>
-              </div>
-              <div className="text-center">
-                <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300 mb-1">
-                  <span className="font-mono">F</span>
-                </div>
-                <p className="text-sm text-gray-600">Rotate Right</p>
-              </div>
-            </div>
-          </div>
+        {/* Move Usage */}
+        <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+          <h4 className="font-semibold mb-2 text-gray-700">Moves Used</h4>
+          <p>
+            {movesUsed} / {maxMovesPerTurn}
+          </p>
+        </div>
 
-          <div>
-            <h4 className="font-semibold mb-3 text-gray-700">Action Controls</h4>
-            <div className="space-y-3">
-              <div className="flex items-center space-x-3">
-                <div className="w-16 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300">
-                  <span className="font-mono">T</span>
-                </div>
-                <p className="text-sm text-gray-600">Select Next Piece</p>
-              </div>
-              <div className="flex items-center space-x-3">
-                <div className="w-16 h-10 bg-gray-100 rounded flex items-center justify-center border border-gray-300">
-                  <span className="font-mono">Enter</span>
-                </div>
-                <p className="text-sm text-gray-600">End Turn / Start Game</p>
-              </div>
-            </div>
-          </div>
-
-          {!isGameStarted && (
-            <div className="mt-4 p-3 bg-green-50 rounded border border-green-200">
-              <p className="text-sm font-medium text-green-700 text-center">Press Enter to Start!</p>
-            </div>
-          )}
-
-          {isGameStarted && selected && (
-            <div className="mt-4 p-3 bg-amber-100 rounded">
-              <p className="text-sm font-medium">Currently Selected: Piece {selected.blockIndex + 1}</p>
-            </div>
+        {/* Turn Info */}
+        <div className="p-3 bg-gray-50 rounded-lg">
+          <h4 className="font-semibold text-gray-700 mb-2">Your Turn?</h4>
+          {isActive && isUser && !gameOver ? (
+            <p className="text-green-700">Yes — up to 3 ephemeral moves!</p>
+          ) : (
+            <p className="text-gray-700">
+              {gameOver ? 'Game Over' : 'Waiting for opponent'}
+            </p>
           )}
         </div>
       </div>
