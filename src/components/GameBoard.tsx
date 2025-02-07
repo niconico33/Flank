@@ -148,9 +148,9 @@ export default function GameBoard({
     const newY = block.y + dy;
     if (newX < 0 || newX >= boardSize || newY < 0 || newY >= boardSize) return;
 
-    // We do not do "attacks" ephemeral. This is just a visual positioning guess.
-    // For simplicity, forbid stepping onto ANY occupant in ephemeral mode.
-    if (findAnyOccupantInEphemeralOrOfficial(newX, newY)) return;
+    // Check for occupants - allow moving onto enemy squares but not our own pieces
+    const occupant = findOccupant(newX, newY);
+    if (occupant && occupant.pID === playerID) return; // Can't move onto our own pieces
 
     block.x = newX;
     block.y = newY;

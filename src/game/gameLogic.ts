@@ -73,10 +73,10 @@ function findBlockOwner(G: GameState, x: number, y: number) {
 // Helper to determine if a direction matches the approach vector
 function isNose(direction: Block['direction'], approach: { dx: number; dy: number }) {
   switch (direction) {
-    case 'up':    return approach.dx === 0 && approach.dy === -1;
-    case 'down':  return approach.dx === 0 && approach.dy === 1;
-    case 'left':  return approach.dx === -1 && approach.dy === 0;
-    case 'right': return approach.dx === 1 && approach.dy === 0;
+    case 'up':    return approach.dy === -1; // Moving up
+    case 'down':  return approach.dy === 1;  // Moving down
+    case 'left':  return approach.dx === -1; // Moving left
+    case 'right': return approach.dx === 1;  // Moving right
     default:      return false;
   }
 }
@@ -174,11 +174,14 @@ const stepBlock = (context: any, args: { playerID: string; blockIndex: number; t
         approachDY
       )
 
-      // If the defender was removed, the attacker takes the square
+      // If the defender was removed (nose vs body), the attacker takes the square
       if (!result.removedAttacker && result.removedDefender) {
+        // The defender has already been removed by resolveCollision
         block.x = targetX
         block.y = targetY
       }
+      // If the attacker was removed (nose vs nose or body vs any), they're already gone
+      // so we don't need to do anything else
     }
   } else {
     // No occupant, just move
