@@ -13,6 +13,10 @@ export interface GameState {
     [playerID: string]: Block[]
   }
   moveCount: number  // Track moves used in current turn
+  lastHighlightedPiece?: {
+    playerID: string
+    blockIndex: number
+  }
 }
 
 function getDefaultSetup(numPlayers: number) {
@@ -22,7 +26,8 @@ function getDefaultSetup(numPlayers: number) {
       '1': [], // Player 1's blocks (human)
       '2': [], // Player 2's blocks (AI)
     },
-    moveCount: 0
+    moveCount: 0,
+    lastHighlightedPiece: undefined
   }
 
   // Player 1's blocks at bottom side
@@ -245,6 +250,17 @@ const commitTurn = (context: any, args: {
   }
 }
 
+const highlightPiece = (context: any, args: { playerID: string; blockIndex: number }) => {
+  const { G } = context
+  const { playerID, blockIndex } = args
+  
+  // Update the last highlighted piece
+  G.lastHighlightedPiece = {
+    playerID,
+    blockIndex
+  }
+}
+
 export const FlankGame: Game<GameState> = {
   name: 'flank',
   
@@ -313,7 +329,8 @@ export const FlankGame: Game<GameState> = {
   moves: {
     pivotBlock,
     stepBlock,
-    commitTurn
+    commitTurn,
+    highlightPiece
   },
 
   endIf: ({ G }: { G: GameState }) => {

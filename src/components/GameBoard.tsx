@@ -13,6 +13,10 @@ interface PlayerBlocks {
 interface FlankGameState {
   boardSize: number;
   blocks: PlayerBlocks;
+  lastHighlightedPiece?: {
+    playerID: string;
+    blockIndex: number;
+  };
 }
 
 interface GameBoardProps {
@@ -31,6 +35,7 @@ interface GameBoardProps {
         dy?: number;
       }>;
     }) => void;
+    highlightPiece: (args: { playerID: string; blockIndex: number }) => void;
   };
   playerID?: string;
   isActive?: boolean;
@@ -212,22 +217,25 @@ export default function GameBoard({
   // Only set initial piece selection when a new turn starts
   useEffect(() => {
     // Only run this when it becomes the player's turn
-    if (canEphemeralMove && selectedBlockIndex === null) {
-      setSelectedBlockIndex(ephemeralBlocks.length > 0 ? 0 : null);
+    if (canEphemeralMove) {
+      // Use lastHighlightedPiece if available, otherwise default to first piece
+      if (G.lastHighlightedPiece?.playerID === playerID) {
+        setSelectedBlockIndex(G.lastHighlightedPiece.blockIndex);
+      } else if (selectedBlockIndex === null) {
+        setSelectedBlockIndex(ephemeralBlocks.length > 0 ? 0 : null);
+      }
     } else if (!canEphemeralMove) {
       setSelectedBlockIndex(null);
     }
-  }, [canEphemeralMove]); // Only depend on canEphemeralMove, not ephemeralBlocks
+  }, [canEphemeralMove, G.lastHighlightedPiece]); // Add lastHighlightedPiece to dependencies
 
   // Toggle to next piece - can be triggered by 't' key or Next button
   const toggleNextPiece = () => {
     if (!canEphemeralMove) return;
     if (ephemeralBlocks.length === 0) return;
-    if (selectedBlockIndex === null) {
-      setSelectedBlockIndex(0);
-    } else {
-      setSelectedBlockIndex((selectedBlockIndex + 1) % ephemeralBlocks.length);
-    }
+    const nextIndex = selectedBlockIndex === null ? 0 : (selectedBlockIndex + 1) % ephemeralBlocks.length;
+    setSelectedBlockIndex(nextIndex);
+    moves.highlightPiece({ playerID: playerID!, blockIndex: nextIndex });
   };
 
   // We'll let user click on squares that contain their ephemeral block to select that piece
@@ -238,6 +246,7 @@ export default function GameBoard({
       const b = ephemeralBlocks[i];
       if (b.x === x && b.y === y) {
         setSelectedBlockIndex(i);
+        moves.highlightPiece({ playerID: playerID!, blockIndex: i });
         return;
       }
     }
