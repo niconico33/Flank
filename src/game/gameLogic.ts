@@ -19,28 +19,26 @@ function getDefaultSetup(numPlayers: number) {
   const defaultState: GameState = {
     boardSize: 8,
     blocks: {
-      '0': [], // Initialize with empty array for player 0
-      '1': [], // Initialize with empty array for player 1
+      '0': [], // Initialize with empty array for player 0 (User)
+      '1': [], // Initialize with empty array for player 1 (FlankBoss)
     },
   }
 
-  // Player 0's blocks (top side)
+  // Player 1's blocks (FlankBoss) at top side
   // Place them on row 0, columns 2..5
   // All facing down
-  defaultState.blocks['0'].push({ x: 2, y: 0, direction: 'down' })
-  defaultState.blocks['0'].push({ x: 3, y: 0, direction: 'down' })
-  defaultState.blocks['0'].push({ x: 4, y: 0, direction: 'down' })
-  defaultState.blocks['0'].push({ x: 5, y: 0, direction: 'down' })
+  defaultState.blocks['1'].push({ x: 2, y: 0, direction: 'down' })
+  defaultState.blocks['1'].push({ x: 3, y: 0, direction: 'down' })
+  defaultState.blocks['1'].push({ x: 4, y: 0, direction: 'down' })
+  defaultState.blocks['1'].push({ x: 5, y: 0, direction: 'down' })
 
-  if (numPlayers > 1) {
-    // Player 1's blocks (bottom side)
-    // Place them on row 7, columns 2..5
-    // All facing up
-    defaultState.blocks['1'].push({ x: 2, y: 7, direction: 'up' })
-    defaultState.blocks['1'].push({ x: 3, y: 7, direction: 'up' })
-    defaultState.blocks['1'].push({ x: 4, y: 7, direction: 'up' })
-    defaultState.blocks['1'].push({ x: 5, y: 7, direction: 'up' })
-  }
+  // Player 0's blocks (User) at bottom side
+  // Place them on row 7, columns 2..5
+  // All facing up
+  defaultState.blocks['0'].push({ x: 2, y: 7, direction: 'up' })
+  defaultState.blocks['0'].push({ x: 3, y: 7, direction: 'up' })
+  defaultState.blocks['0'].push({ x: 4, y: 7, direction: 'up' })
+  defaultState.blocks['0'].push({ x: 5, y: 7, direction: 'up' })
 
   return defaultState
 }

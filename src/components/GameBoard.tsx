@@ -31,19 +31,13 @@ interface GameBoardProps {
   isActive?: boolean;
 }
 
-export default function GameBoard({
-  G,
-  ctx,
-  moves,
-  playerID,
-  isActive,
-}: GameBoardProps) {
+export default function GameBoard({ G, ctx, moves, playerID, isActive }: GameBoardProps) {
   const { boardSize, blocks } = G;
   const [selected, setSelected] = useState<{ blockIndex: number; playerID: string } | null>(null);
 
   const currentPlayerBlocks = blocks[playerID || '0'] || [];
 
-  // Helper to determine if a cell has a block and who owns it:
+  // Helper to find the occupant of a cell
   function findBlockOwner(x: number, y: number): { player: string; index: number } | null {
     for (const pID of Object.keys(blocks)) {
       for (let i = 0; i < blocks[pID].length; i++) {
@@ -54,6 +48,18 @@ export default function GameBoard({
       }
     }
     return null;
+  }
+
+  // For occupant color and label
+  function getOccupantLabelAndColor(pID: string, direction: string) {
+    let label = pID === '0' ? 'U' : 'B'; // U for User, B for FlankBoss
+    let arrow = '↑';
+    if (direction === 'down') arrow = '↓';
+    if (direction === 'left') arrow = '←';
+    if (direction === 'right') arrow = '→';
+
+    const colorClass = pID === '0' ? 'text-orange-500' : 'text-blue-500';
+    return { display: `${label}${arrow}`, colorClass };
   }
 
   const handleCellClick = (x: number, y: number) => {
@@ -79,63 +85,33 @@ export default function GameBoard({
         playerID,
         blockIndex: selected.blockIndex,
         targetX: x,
-        targetY: y
+        targetY: y,
       } as any);
       setSelected(null);
     }
   };
 
-  const pivot = (directionChange: 'left' | 'right') => {
-    if (!isActive || !playerID || !selected) return;
-    moves.pivotBlock({
-      playerID,
-      blockIndex: selected.blockIndex,
-      directionChange
-    } as any);
-  };
-
   return (
-    <div className="flex flex-col items-center">
-      <div className="mb-4">
-        {selected ? (
-          <div className="space-x-2">
-            <button
-              onClick={() => pivot('left')}
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
-            >
-              Pivot Left
-            </button>
-            <button
-              onClick={() => pivot('right')}
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
-            >
-              Pivot Right
-            </button>
-          </div>
-        ) : (
-          <p>Select one of your blocks on the board to pivot or step.</p>
-        )}
-      </div>
-
-      <div className="flex justify-center">
-        <div className="grid grid-cols-8">
-          {Array.from({ length: boardSize }).map((_, rowIdx) =>
-            Array.from({ length: boardSize }).map((__, colIdx) => {
+    <div className="flex items-start justify-center space-x-8">
+      {/* Game Board */}
+      <div className="grid grid-cols-8">
+        {Array.from({ length: boardSize }).map((_, rowIdx) => (
+          <div key={`row-${rowIdx}`} className="contents">
+            {Array.from({ length: boardSize }).map((__, colIdx) => {
               const occupant = findBlockOwner(colIdx, rowIdx);
               let display = '';
+              let colorClass = '';
 
               if (occupant) {
                 const block = blocks[occupant.player][occupant.index];
-                // Show direction + player color
-                // For simplicity, color = occupant.player (0,1,2,3)
-                // Symbol for direction
-                let arrow = '↑';
-                if (block.direction === 'down') arrow = '↓';
-                if (block.direction === 'left') arrow = '←';
-                if (block.direction === 'right') arrow = '→';
-
-                display = `P${occupant.player}-${arrow}`;
+                const result = getOccupantLabelAndColor(occupant.player, block.direction);
+                display = result.display;
+                colorClass = result.colorClass;
               }
+
+              // Checkerboard pattern with tan/dark-brown colors
+              const isLightSquare = (rowIdx + colIdx) % 2 === 0;
+              const bgColor = isLightSquare ? 'bg-amber-200' : 'bg-amber-800';
 
               const isSelected =
                 selected &&
@@ -146,15 +122,44 @@ export default function GameBoard({
               return (
                 <div
                   key={`${rowIdx}-${colIdx}`}
-                  className={`w-16 h-16 border border-gray-300 flex items-center justify-center cursor-pointer ${
+                  className={`w-16 h-16 border border-amber-900 flex items-center justify-center ${bgColor} ${colorClass} ${
                     isSelected ? 'bg-yellow-200' : 'hover:bg-gray-100'
                   }`}
                   onClick={() => handleCellClick(colIdx, rowIdx)}
                 >
-                  {display}
+                  <span className={`text-2xl font-bold ${colorClass}`}>
+                    {display}
+                  </span>
                 </div>
               );
-            })
+            })}
+          </div>
+        ))}
+      </div>
+
+      {/* Controls Panel */}
+      <div className="bg-white p-6 rounded-lg shadow-md w-64">
+        <h3 className="text-lg font-bold mb-4">Controls</h3>
+        <div className="space-y-4">
+          <div>
+            <h4 className="font-semibold mb-2">Movement</h4>
+            <p className="text-sm">Use arrow keys (↑↓←→) to move selected piece</p>
+          </div>
+          <div>
+            <h4 className="font-semibold mb-2">Rotation</h4>
+            <p className="text-sm">[s] Pivot Left</p>
+            <p className="text-sm">[f] Pivot Right</p>
+          </div>
+          <div>
+            <h4 className="font-semibold mb-2">Other</h4>
+            <p className="text-sm">[t] Toggle Selected Piece</p>
+            <p className="text-sm">[e] Reset Move</p>
+            <p className="text-sm">[Enter] Confirm Move</p>
+          </div>
+          {selected && (
+            <div className="mt-4 p-3 bg-amber-100 rounded">
+              <p className="text-sm font-medium">Selected Piece: {selected.blockIndex + 1}</p>
+            </div>
           )}
         </div>
       </div>
