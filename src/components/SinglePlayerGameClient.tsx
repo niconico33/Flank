@@ -55,19 +55,19 @@ export default function SinglePlayerGameClient() {
   };
 
   return (
-    <div className="game-container flex flex-col justify-center items-center p-4">
+    <div className="min-h-[calc(100vh-8rem)] flex flex-col items-center py-8 px-4 overflow-y-auto">
       {/* Reset Button */}
-      <div className="mb-4">
+      <div className="mb-6 mt-2">
         <button
           onClick={handleResetGame}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
           Reset Game
         </button>
       </div>
 
-      <h2 className="text-xl font-bold mb-4 text-center">Player 1 (You) vs. Player 2 (AI)</h2>
-      <div className="w-full md:w-5/6 lg:w-3/4 xl:w-2/3 border p-4 rounded shadow bg-white">
+      <h2 className="text-xl font-bold mb-6 text-center">Player 1 (You) vs. Player 2 (AI)</h2>
+      <div className="w-full max-w-5xl mx-auto border p-6 rounded-lg shadow-lg bg-white mb-8">
         <FlankSinglePlayer playerID="1" />
       </div>
     </div>

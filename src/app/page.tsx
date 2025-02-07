@@ -52,7 +52,7 @@ export default function HomePage() {
             <section className="mb-8">
               <h3 className="text-2xl font-bold mb-4">Winning</h3>
               <p>
-                Be the last player with blocks remaining on the board. See about section for custom ideas. 
+                Be the last player with blocks remaining on the board. See 'How to Play' for variations. 
               </p>
             </section>
 

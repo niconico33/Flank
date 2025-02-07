@@ -550,7 +550,7 @@ export default function GameBoard({
             </button>
           </div>
           <p className="text-sm text-gray-600">
-            Click on your piece, press the Next button, or press "t" to cycle through pieces.
+            press 't' to toggle
           </p>
         </div>
 
@@ -559,22 +559,22 @@ export default function GameBoard({
           <h4 className="font-semibold mb-2">Movement Keys</h4>
           <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700">
             <li>
-              <strong>Arrow Keys:</strong> Move piece
+              <strong>Arrow Keys:</strong> Step
             </li>
             <li>
-              <strong>d:</strong> Rotate counterclockwise
+              <strong>d:</strong> Pivot counterclockwise
             </li>
             <li>
-              <strong>f:</strong> Rotate clockwise
+              <strong>f:</strong> Pivot clockwise
             </li>
             <li>
-              <strong>t:</strong> Select next piece
+              <strong>t:</strong> Toggle
             </li>
             <li>
-              <strong>e:</strong> Reset moves
+              <strong>e:</strong> Reset tentative moves
             </li>
             <li>
-              <strong>Enter:</strong> Commit turn
+              <strong>Enter:</strong> Commit moves
             </li>
           </ul>
         </div>

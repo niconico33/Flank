@@ -8,20 +8,25 @@ export default function HowToPlayPage() {
   return (
     <>
       <Navbar />
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
-        <h1 className="text-4xl font-bold mb-8">How to Play Flank</h1>
+      <div className="container mx-auto px-4 py-8">
+        <section className="mb-12">
+          <h2 className="text-2xl font-bold mb-4">Learn 'The Way'</h2>
+          <p className="mb-4">
+            By playing Flank.
+          </p>
+        </section>
 
         {/* Overview Section */}
         <section className="mb-12">
-          <h2 className="text-2xl font-bold mb-4">1. Overview</h2>
+          <h2 className="text-2xl font-bold mb-4">1. Objective</h2>
           <p className="mb-4">
-          Objective: Eliminate opposing blocks with a flanking move. Be the last player with any blocks remaining.
+            Cover and move. Flank your opponents. Be the last player with any blocks remaining.
           </p>
         </section>
 
         {/* Components Section */}
         <section className="mb-12">
-          <h2 className="text-2xl font-bold mb-4">2. Components</h2>
+          <h2 className="text-2xl font-bold mb-4">2. Components (to play at home)</h2>
           
           <div className="mb-6">
             <h3 className="text-xl font-semibold mb-2">Board</h3>
@@ -38,7 +43,7 @@ export default function HowToPlayPage() {
               <li>4 blocks per color, 4 colors available</li>
               <li>Block faces:
                 <ul className="list-circle pl-6 mt-2">
-                  <li>One face has a dot (the "nose")</li>
+                  <li>One face has a dot (the "nose"), alternatively use an arrow on top.</li>
                   <li>Three faces have a line (the "body")</li>
                   <li>Top face is color-coded by teams (Blue, Orange, Black, Green)</li>
                 </ul>
@@ -100,7 +105,7 @@ export default function HowToPlayPage() {
             <h3 className="text-xl font-semibold mb-2">Pivot</h3>
             <ul className="list-disc pl-6">
               <li>90-degree turn within the same square</li>
-              <li>Rotate block so nose (dot) faces new direction</li>
+              <li>Rotate block so nose (dot/arrow) faces new direction</li>
               <li>One pivot = one move</li>
             </ul>
           </div>
@@ -109,7 +114,7 @@ export default function HowToPlayPage() {
             <h3 className="text-xl font-semibold mb-2">Step</h3>
             <ul className="list-disc pl-6">
               <li>Move to an adjacent square (orthogonally, not diagonally)</li>
-              <li>Can move forward, backward, or laterally regardless of orientation</li>
+              <li>Can move forward, backward, or laterally regardless of nose orientation</li>
               <li>One step = one move</li>
             </ul>
           </div>
@@ -122,9 +127,9 @@ export default function HowToPlayPage() {
           <div className="mb-6">
             <h3 className="text-xl font-semibold mb-2">Conditions to Attack</h3>
             <ul className="list-disc pl-6">
-              <li>Nose (dot) must align to strike opponent's body (line)</li>
+              <li>Nose must align to strike opponent's body</li>
               <li>Must move into the opponent's square</li>
-              <li>Nose-on-nose or body-on-body contact results in the attacker's loss</li>
+              <li>Nose-on-nose or body-on-body aren't allowed</li>
             </ul>
           </div>
 
@@ -149,8 +154,8 @@ export default function HowToPlayPage() {
           <div className="mb-6">
             <h3 className="text-xl font-semibold mb-2">Custom Victory Conditions</h3>
             <ul className="list-disc pl-6">
-              <li>Capture the Flag (reach designated squares)</li>
-              <li>Eliminate the Captain (chosen block with special significance)</li>
+              <li>Capture the Flag (reach designated square)</li>
+              <li>Capture the Captain (mark a block)</li>
             </ul>
           </div>
         </section>
@@ -186,19 +191,6 @@ export default function HowToPlayPage() {
               <p>You may attack as long as you have moves left in your turn.</p>
             </div>
           </div>
-        </section>
-
-        {/* Final Notes Section */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-bold mb-4">Final Notes</h2>
-          <p className="mb-4">
-            Learn The Way in play. Flanking is an emergent property of competition. You can flank in all scales 
-            and types of competition. Flank can be done as one piece or cooperatively. To cover and move, set a 
-            base element and flank with another element.
-          </p>
-          <p>
-            Flank strategically on the board, and Flank tactically to eliminate opponent blocks.
-          </p>
         </section>
       </div>
       <Footer />
