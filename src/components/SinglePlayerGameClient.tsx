@@ -2,11 +2,11 @@
 
 import React, { useState } from 'react';
 import { Client } from 'boardgame.io/react';
-import { RandomBot } from 'boardgame.io/ai';
 import { Local } from 'boardgame.io/multiplayer';
 import { FlankGame } from '../game/gameLogic';
 import type { BoardProps } from 'boardgame.io/react';
 import GameBoard from './GameBoard';
+import { FlankBot } from '../game/ai';
 
 interface GameBoardWrapperProps extends Omit<BoardProps, 'moves'> {
   isGameStarted: boolean;
@@ -32,7 +32,6 @@ export default function SinglePlayerGameClient() {
   const [isGameStarted, setIsGameStarted] = useState(false);
 
   // Create the single-player client for user (Player 1) vs AI (Player 2).
-  // Attach RandomBot to player '2' in Local to automate AI moves.
   const FlankSinglePlayer = Client({
     game: FlankGame,
     board: (props: BoardProps) => (
@@ -46,7 +45,7 @@ export default function SinglePlayerGameClient() {
     numPlayers: 2,
     multiplayer: Local({
       bots: {
-        '2': RandomBot, // Assign the AI bot to player 2
+        '2': FlankBot, // Use our MCTS-based AI class
       },
     }),
   });
