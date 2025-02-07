@@ -212,85 +212,20 @@ export default function GameBoard({
     moves.commitTurn({ newBlocks: ephemeralBlocks });
   };
 
-  // If game is over, pressing Enter should reload or reset the game
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // If game not started, we allow Enter to start as well
-      if (e.key === 'Enter' && gameOver) {
-        // Reload page to start a new game or we could call a client reset
-        window.location.reload();
-      }
-
-      // If not my turn or game not started or game is over, ignore controls
-      if (!canEphemeralMove) return;
-
-      switch (e.key) {
-        // Movement
-        case 'ArrowUp':
-          e.preventDefault();
-          ephemeralStepBlock(0, -1);
-          break;
-        case 'ArrowDown':
-          e.preventDefault();
-          ephemeralStepBlock(0, 1);
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          ephemeralStepBlock(-1, 0);
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          ephemeralStepBlock(1, 0);
-          break;
-
-        // Pivot
-        case 'f': // f => clockwise
-          e.preventDefault();
-          ephemeralPivotBlock('right');
-          break;
-        case 'd': // d => counterclockwise
-          e.preventDefault();
-          ephemeralPivotBlock('left');
-          break;
-
-        // Reset ephemeral
-        case 'e':
-          e.preventDefault();
-          ephemeralReset();
-          break;
-
-        // Commit ephemeral and end turn
-        case 'Enter':
-          e.preventDefault();
-          ephemeralCommit();
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    canEphemeralMove,
-    ephemeralStepBlock,
-    ephemeralPivotBlock,
-    ephemeralReset,
-    ephemeralCommit,
-    gameOver,
-  ]);
-
   // *** Selecting pieces *** //
-  // We'll let the user cycle which ephemeral block is selected or click on them
   const [selectedBlockIndex, setSelectedBlockIndex] = useState<number | null>(null);
 
-  // If it becomes a new turn, default selected block to 0 if any exist
+  // Only set initial piece selection when a new turn starts
   useEffect(() => {
-    if (canEphemeralMove) {
+    // Only run this when it becomes the player's turn
+    if (canEphemeralMove && selectedBlockIndex === null) {
       setSelectedBlockIndex(ephemeralBlocks.length > 0 ? 0 : null);
-    } else {
+    } else if (!canEphemeralMove) {
       setSelectedBlockIndex(null);
     }
-  }, [canEphemeralMove, ephemeralBlocks]);
+  }, [canEphemeralMove]); // Only depend on canEphemeralMove, not ephemeralBlocks
 
+  // Toggle to next piece - can be triggered by 't' key or Next button
   const toggleNextPiece = () => {
     if (!canEphemeralMove) return;
     if (ephemeralBlocks.length === 0) return;
@@ -362,6 +297,79 @@ export default function GameBoard({
     const colorClass = colorMap[pID] || 'text-gray-500';
     return { display: `${label}${arrow}`, colorClass };
   }
+
+  // *** KEYBOARD EVENTS *** //
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // If game not started or game over or not player's turn, ignore
+      if (!canEphemeralMove) {
+        // But handle Enter for game start or to reset if gameOver
+        if (e.key === 'Enter') {
+          if (gameOver) {
+            window.location.reload();
+          } else if (!isGameStarted) {
+            setIsGameStarted(true);
+          }
+        }
+        return;
+      }
+
+      // Prevent default behavior for game control keys
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'd', 'f', 'e', 't', 'Enter'].includes(e.key)) {
+        e.preventDefault();
+      }
+
+      switch (e.key) {
+        // Movement
+        case 'ArrowUp':
+          ephemeralStepBlock(0, -1);
+          break;
+        case 'ArrowDown':
+          ephemeralStepBlock(0, 1);
+          break;
+        case 'ArrowLeft':
+          ephemeralStepBlock(-1, 0);
+          break;
+        case 'ArrowRight':
+          ephemeralStepBlock(1, 0);
+          break;
+
+        // Rotation
+        case 'f': // clockwise
+          ephemeralPivotBlock('right');
+          break;
+        case 'd': // counterclockwise
+          ephemeralPivotBlock('left');
+          break;
+
+        // Piece Selection
+        case 't': // toggle through pieces
+          toggleNextPiece();
+          break;
+
+        // Turn Management
+        case 'e': // reset ephemeral moves
+          ephemeralReset();
+          break;
+        case 'Enter': // commit turn
+          ephemeralCommit();
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    canEphemeralMove,
+    gameOver,
+    isGameStarted,
+    setIsGameStarted,
+    ephemeralStepBlock,
+    ephemeralPivotBlock,
+    ephemeralReset,
+    ephemeralCommit,
+    toggleNextPiece,
+  ]);
 
   // *** RENDERING *** //
   return (
@@ -479,11 +487,11 @@ export default function GameBoard({
               } transition-colors`}
               disabled={!canEphemeralMove}
             >
-              Next
+              Next (T)
             </button>
           </div>
           <p className="text-sm text-gray-600">
-            Click on your piece or press the Next button to change selection.
+            Click on your piece, press the Next button, or press "t" to cycle through pieces.
           </p>
         </div>
 
@@ -492,7 +500,7 @@ export default function GameBoard({
           <h4 className="font-semibold mb-2">Movement Keys</h4>
           <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700">
             <li>
-              <strong>Arrow Keys:</strong> Move piece (step)
+              <strong>Arrow Keys:</strong> Move piece
             </li>
             <li>
               <strong>d:</strong> Rotate counterclockwise
@@ -501,10 +509,13 @@ export default function GameBoard({
               <strong>f:</strong> Rotate clockwise
             </li>
             <li>
-              <strong>e:</strong> Reset ephemeral moves
+              <strong>t:</strong> Select next piece
             </li>
             <li>
-              <strong>Enter:</strong> Commit turn (or start game / restart if game over)
+              <strong>e:</strong> Reset moves
+            </li>
+            <li>
+              <strong>Enter:</strong> Commit turn
             </li>
           </ul>
         </div>
