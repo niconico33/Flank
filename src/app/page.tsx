@@ -1,3 +1,6 @@
+'use client';
+
+import React from 'react';
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
@@ -50,9 +53,9 @@ export default function HomePage() {
             </section>
 
             <section className="mb-8">
-              <h3 className="text-2xl font-bold mb-4">Winning</h3>
+              <h3 className="text-2xl font-bold mb-4">To Win</h3>
               <p>
-                Be the last player with blocks remaining on the board. See 'How to Play' for variations. 
+                Be the last player with blocks remaining on the board.  
               </p>
             </section>
 
@@ -62,6 +65,15 @@ export default function HomePage() {
                 <li>Flank</li>
                 <li>Cover and Move</li>
               </ul>
+            </section>
+
+            <section className="mb-8">
+              <h3 className="text-2xl font-bold mb-4">Notes</h3>
+              <p>
+                See <Link href="/how-to-play" className="text-blue-600 hover:text-blue-800">How to Play</Link> for variations.
+                <br />
+                @Nicomelv on X 
+              </p>
             </section>
           </div>
         </div>
