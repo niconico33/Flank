@@ -36,6 +36,7 @@ interface GameBoardProps {
       }>;
     }) => void;
     highlightPiece: (args: { playerID: string; blockIndex: number }) => void;
+    resetMove: () => void;
   };
   playerID?: string;
   isActive?: boolean;
@@ -55,6 +56,7 @@ export default function GameBoard({
   const { boardSize, blocks } = G;
   const gameOver = !!ctx.gameover;
   const isUser = playerID === '1';
+  const [isResetting, setIsResetting] = useState(false);
 
   // Track ephemeral blocks for display
   const [ephemeralBlocks, setEphemeralBlocks] = useState<Block[]>([]);
@@ -330,11 +332,29 @@ export default function GameBoard({
     return { display: `${label}${arrow}`, colorClass };
   }
 
+  // Add handleResetMove function
+  const handleResetMove = () => {
+    setIsResetting(true);
+    try {
+      // Force the reset move regardless of turn state
+      moves.resetMove();
+      // Reset all local state
+      setEphemeralBlocks([]);
+      setEphemeralMoves([]);
+      setMovesUsed(0);
+      setSelectedBlockIndex(null);
+    } catch (error) {
+      console.error('Failed to reset move:', error);
+    }
+    // Reset the loading state after a short delay
+    setTimeout(() => setIsResetting(false), 1000);
+  };
+
   // *** KEYBOARD EVENTS *** //
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // If game not started or game over or not player's turn, ignore
-      if (!canEphemeralMove) {
+      // If game not started or game over, ignore
+      if (!isGameStarted || gameOver) {
         // But handle Enter for game start or to reset if gameOver
         if (e.key === 'Enter') {
           if (gameOver) {
@@ -343,6 +363,13 @@ export default function GameBoard({
             setIsGameStarted(true);
           }
         }
+        return;
+      }
+
+      // Add 'r' key for reset when stuck
+      if (e.key === 'r' && !isActive) {
+        e.preventDefault();
+        handleResetMove();
         return;
       }
 
@@ -566,9 +593,34 @@ export default function GameBoard({
           {isActive && isUser && !gameOver ? (
             <p className="text-green-700">Yes — up to 3 ephemeral moves!</p>
           ) : (
-            <p className="text-gray-700">
-              {gameOver ? 'Game Over' : 'Waiting for opponent'}
-            </p>
+            <div>
+              <p className="text-gray-700 mb-2">
+                {gameOver ? 'Game Over' : 'Waiting for opponent'}
+              </p>
+              {!gameOver && !isActive && (
+                <button
+                  onClick={handleResetMove}
+                  disabled={isResetting}
+                  className={`px-3 py-1 rounded ${
+                    isResetting 
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-red-500 hover:bg-red-600'
+                  } text-white transition-colors flex items-center justify-center space-x-1`}
+                  title="Press 'R' to reset when stuck"
+                >
+                  {isResetting ? (
+                    <>
+                      <span className="animate-spin">↻</span>
+                      <span>Resetting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Reset Move (R)</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

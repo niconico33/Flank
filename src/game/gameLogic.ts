@@ -273,6 +273,39 @@ export const FlankGame: Game<GameState> = {
     }
   },
 
+  moves: {
+    pivotBlock: {
+      move: pivotBlock,
+      client: false
+    },
+    stepBlock: {
+      move: stepBlock,
+      client: false
+    },
+    commitTurn: {
+      move: commitTurn,
+      client: false
+    },
+    highlightPiece: {
+      move: highlightPiece,
+      client: false,
+      noLimit: true
+    },
+    resetMove: {
+      move: (context: any) => {
+        const { G, ctx, events } = context;
+        // Reset move count for current player
+        G.moveCount = 0;
+        // Force end current turn
+        if (events?.endTurn) {
+          events.endTurn();
+        }
+      },
+      client: false,
+      noLimit: true
+    }
+  },
+
   ai: {
     enumerate: (G: GameState, ctx: any) => {
       const moves: Array<{
@@ -313,18 +346,8 @@ export const FlankGame: Game<GameState> = {
         });
       });
 
-      // Always add end turn as a possible move
-      moves.push({ move: 'endTurn' });
-
       return moves;
     }
-  },
-
-  moves: {
-    pivotBlock,
-    stepBlock,
-    commitTurn,
-    highlightPiece
   },
 
   endIf: ({ G }: { G: GameState }) => {
