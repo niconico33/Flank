@@ -20,7 +20,7 @@ function GameBoardWrapper(props: GameBoardWrapperProps) {
       G={props.G}
       ctx={props.ctx}
       moves={props.moves}
-      playerID={props.playerID || undefined}
+      playerID={props.playerID}
       isActive={props.isActive}
       isGameStarted={props.isGameStarted}
       setIsGameStarted={props.setIsGameStarted}
@@ -30,8 +30,9 @@ function GameBoardWrapper(props: GameBoardWrapperProps) {
 
 export default function SinglePlayerGameClient() {
   const [isGameStarted, setIsGameStarted] = useState(false);
+  const [key, setKey] = useState(0);
 
-  // Create the single-player client for user (Player 1) vs AI (Player 2).
+  // Create the single-player client for user (Player 1) vs AI (Player 2)
   const FlankSinglePlayer = Client({
     game: FlankGame,
     board: (props: BoardProps) => (
@@ -45,13 +46,14 @@ export default function SinglePlayerGameClient() {
     numPlayers: 2,
     multiplayer: Local({
       bots: {
-        '2': FlankBot, // Use our MCTS-based AI class
+        '2': FlankBot,
       },
     }),
   });
 
   const handleResetGame = () => {
-    (FlankSinglePlayer as any).reset();
+    setIsGameStarted(false);
+    setKey(k => k + 1); // Force a remount of the game component
   };
 
   return (
@@ -68,7 +70,7 @@ export default function SinglePlayerGameClient() {
 
       <h2 className="text-xl font-bold mb-6 text-center">Player 1 (You) vs. Player 2 (AI)</h2>
       <div className="w-full max-w-5xl mx-auto border p-6 rounded-lg shadow-lg bg-white mb-8">
-        <FlankSinglePlayer playerID="1" />
+        <FlankSinglePlayer key={key} playerID="1" />
       </div>
     </div>
   );

@@ -30,17 +30,17 @@ function getDefaultSetup(numPlayers: number) {
     lastHighlightedPiece: undefined
   }
 
-  // Player 1's blocks at bottom side
-  defaultState.blocks['1'].push({ x: 2, y: 7, direction: 'up' })
-  defaultState.blocks['1'].push({ x: 3, y: 7, direction: 'up' })
-  defaultState.blocks['1'].push({ x: 4, y: 7, direction: 'up' })
-  defaultState.blocks['1'].push({ x: 5, y: 7, direction: 'up' })
+  // Player 1's blocks at row 5 (third row from bottom)
+  defaultState.blocks['1'].push({ x: 2, y: 5, direction: 'up' })
+  defaultState.blocks['1'].push({ x: 3, y: 5, direction: 'up' })
+  defaultState.blocks['1'].push({ x: 4, y: 5, direction: 'up' })
+  defaultState.blocks['1'].push({ x: 5, y: 5, direction: 'up' })
 
-  // Player 2's blocks at top side
-  defaultState.blocks['2'].push({ x: 2, y: 0, direction: 'down' })
-  defaultState.blocks['2'].push({ x: 3, y: 0, direction: 'down' })
-  defaultState.blocks['2'].push({ x: 4, y: 0, direction: 'down' })
-  defaultState.blocks['2'].push({ x: 5, y: 0, direction: 'down' })
+  // Player 2's blocks at row 2 (third row from top)
+  defaultState.blocks['2'].push({ x: 2, y: 2, direction: 'down' })
+  defaultState.blocks['2'].push({ x: 3, y: 2, direction: 'down' })
+  defaultState.blocks['2'].push({ x: 4, y: 2, direction: 'down' })
+  defaultState.blocks['2'].push({ x: 5, y: 2, direction: 'down' })
 
   return defaultState
 }
@@ -63,7 +63,7 @@ function pivotDirection(current: 'up' | 'down' | 'left' | 'right', turn: 'left' 
 }
 
 // Returns the occupant of a square if any
-function findBlockOwner(G: GameState, x: number, y: number) {
+export function findBlockOwner(G: GameState, x: number, y: number) {
   for (const pID in G.blocks) {
     for (let i = 0; i < G.blocks[pID].length; i++) {
       const b = G.blocks[pID][i]

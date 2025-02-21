@@ -1,5 +1,6 @@
 import { MCTSBot } from 'boardgame.io/ai';
-import { GameState, Block, FlankGame } from './gameLogic';
+import { GameState, Block, FlankGame, findBlockOwner } from './gameLogic';
+import { openingBook } from './openingBook';
 
 /**
  * Efficient deep clone for Block arrays.
@@ -340,27 +341,106 @@ function enumerateAllTurnSequences(G: GameState, playerID: string) {
 function improvedEnumerator(G: GameState, ctx: any) {
   const moves: Array<{ move: string; args?: any }> = [];
   const playerID = ctx.currentPlayer;
-
-  // If it's not the correct player's turn, no moves
-  if (!playerID || playerID !== ctx.currentPlayer) {
-    return moves;
+  
+  // Check opening book first
+  const bookKey = `${G.boardSize}-${playerID}`;
+  const openingMoves = openingBook[bookKey];
+  if (openingMoves && G.moveCount < openingMoves.length) {
+    const currentBookMove = openingMoves[G.moveCount];
+    // Verify board state matches
+    if (boardStatesMatch(G.blocks[playerID], currentBookMove.turnStartBlocks)) {
+      return [{
+        move: 'commitTurn',
+        args: currentBookMove
+      }];
+    }
   }
-
+  
   // Gather multi-move ephemeral sequences
   const sequences = enumerateAllTurnSequences(G, playerID);
-  for (const seq of sequences) {
-    // We'll create a single "commitTurn" move that replays the ephemeral moves
+  
+  // Filter and sort sequences based on heuristics
+  const scoredSequences = sequences.map(seq => ({
+    sequence: seq,
+    score: evaluateSequence(G, playerID, seq)
+  })).filter(item => item.score > -1000); // Filter out obviously bad sequences
+  
+  // Sort by score descending and take top 70%
+  scoredSequences.sort((a, b) => b.score - a.score);
+  const cutoff = Math.max(1, Math.floor(scoredSequences.length * 0.7));
+  const prunedSequences = scoredSequences.slice(0, cutoff);
+  
+  // Convert sequences to moves
+  for (const { sequence } of prunedSequences) {
     moves.push({
       move: 'commitTurn',
       args: {
         turnStartBlocks: G.blocks[playerID],
-        ephemeralMoves: seq,
-      },
+        ephemeralMoves: sequence
+      }
     });
   }
-
-  // Note: No need for explicit endTurn - the empty sequence (sequences[0]) acts as a pass
+  
   return moves;
+}
+
+/**
+ * Helper to evaluate a move sequence
+ */
+function evaluateSequence(G: GameState, playerID: string, sequence: any[]): number {
+  let score = 0;
+  const isPlayer1 = playerID === '1';
+  
+  // Simulate the sequence
+  const simulatedG = { ...G, blocks: { ...G.blocks } };
+  simulatedG.blocks[playerID] = cloneBlocks(G.blocks[playerID]);
+  
+  for (const move of sequence) {
+    if (move.type === 'step') {
+      // Reward forward progress
+      const dy = move.dy || 0;
+      if ((isPlayer1 && dy < 0) || (!isPlayer1 && dy > 0)) {
+        score += 50;
+      }
+      
+      // Penalize backward movement
+      if ((isPlayer1 && dy > 0) || (!isPlayer1 && dy < 0)) {
+        score -= 75;
+      }
+    }
+    
+    // Apply move to simulation
+    if (move.type === 'pivot') {
+      ephemeralPivot(simulatedG.blocks[playerID], move.blockIndex, move.direction);
+    } else if (move.type === 'step') {
+      const stepped = ephemeralStep(simulatedG, simulatedG.blocks[playerID], playerID, move.blockIndex, move.dx, move.dy);
+      if (stepped) {
+        simulatedG.blocks[playerID] = stepped;
+      }
+    }
+  }
+  
+  // Evaluate final position
+  score += evaluateBoard(simulatedG, null, playerID) * 0.5; // Weight final position less than immediate tactics
+  
+  return score;
+}
+
+/**
+ * Helper to check if two board states match
+ */
+function boardStatesMatch(current: Block[], target: Block[]): boolean {
+  if (current.length !== target.length) return false;
+  
+  for (let i = 0; i < current.length; i++) {
+    if (current[i].x !== target[i].x ||
+        current[i].y !== target[i].y ||
+        current[i].direction !== target[i].direction) {
+      return false;
+    }
+  }
+  
+  return true;
 }
 
 /**
@@ -408,6 +488,9 @@ function enemyNearby(G: GameState, playerID: string, x1: number, y1: number, x2:
  * 6. Heavy penalty for losing pieces
  * 7. High reward for eliminating enemy pieces
  * 8. Tactical positioning (flanks and L formations)
+ * 9. Control of key squares
+ * 10. Piece coordination
+ * 11. Mobility and flexibility
  */
 function evaluateBoard(G: GameState, ctx: any, playerID: string): number {
   let score = 0;
@@ -419,15 +502,16 @@ function evaluateBoard(G: GameState, ctx: any, playerID: string): number {
   );
   
   if (alivePlayers.length === 1 && alivePlayers[0] === playerID) {
-    // We've won! Massive reward
-    return 2000;
+    return 2000; // Win
   } else if (alivePlayers.length === 1) {
-    // We've lost
-    return -2000;
+    return -2000; // Loss
   }
   
-  // Count blocks and evaluate their positions
-  const initialBlockCount = { '1': 4, '2': 4 }; // Starting block count for each player
+  const initialBlockCount = { '1': 4, '2': 4 };
+  const centerSquares = [
+    { x: 3, y: 3 }, { x: 3, y: 4 },
+    { x: 4, y: 3 }, { x: 4, y: 4 }
+  ];
   
   for (const pID of Object.keys(G.blocks)) {
     const isMyBlock = pID === playerID;
@@ -439,12 +523,21 @@ function evaluateBoard(G: GameState, ctx: any, playerID: string): number {
     const eliminatedCount = initialBlockCount[pID] - blocks.length;
     if (isMyBlock) {
       score -= eliminatedCount * 1000; // Heavy penalty for losing blocks
+      
+      // Be more defensive when we have few pieces left
+      if (blocks.length <= 2) {
+        score -= 500; // Additional penalty to encourage defensive play
+      }
     } else {
       score += eliminatedCount * 1000; // Equal reward for eliminating enemy blocks
+      
+      // Be more cautious when enemy has few pieces
+      if (blocks.length <= 2) {
+        score -= 200; // Penalty to discourage risky moves when close to winning
+      }
     }
     
     if (isMyBlock) {
-      // Evaluate tactical formations between our pieces
       for (let i = 0; i < blocks.length; i++) {
         const block = blocks[i];
         
@@ -453,89 +546,32 @@ function evaluateBoard(G: GameState, ctx: any, playerID: string): number {
         
         // Position score: reward being closer to enemy side
         const positionScore = isPlayer1 
-          ? (G.boardSize - block.y) * 10  // Player 1: reward being higher up
-          : block.y * 10;                 // Player 2: reward being lower down
+          ? (G.boardSize - block.y) * 15  // Player 1: reward being higher up
+          : block.y * 15;                 // Player 2: reward being lower down
         score += positionScore;
         
         // Direction score: reward facing the enemy
         const facingScore = isPlayer1
-          ? (block.direction === 'up' ? 15 : 0)     // Player 1: reward facing up
-          : (block.direction === 'down' ? 15 : 0);  // Player 2: reward facing down
+          ? (block.direction === 'up' ? 20 : 0)     // Player 1: reward facing up
+          : (block.direction === 'down' ? 20 : 0);  // Player 2: reward facing down
         score += facingScore;
         
-        // Check for potential captures
-        const dx = block.direction === 'left' ? -1 : block.direction === 'right' ? 1 : 0;
-        const dy = block.direction === 'up' ? -1 : block.direction === 'down' ? 1 : 0;
-        const targetX = block.x + dx;
-        const targetY = block.y + dy;
-        
-        // Direct attack opportunities
-        if (targetX >= 0 && targetX < G.boardSize && targetY >= 0 && targetY < G.boardSize) {
-          const enemyBlock = findEnemyAt(G, playerID, targetX, targetY);
-          if (enemyBlock) {
-            // Check if it's a valid capture (nose-on-body)
-            const enemyFacing = isNose(enemyBlock.direction, -dx, -dy);
-            if (!enemyFacing) {
-              // Reward for being in position to capture
-              score += 100;
-            }
-          }
+        // Control of key squares (center control)
+        if (centerSquares.some(sq => sq.x === block.x && sq.y === block.y)) {
+          score += 50; // Bonus for controlling center squares
         }
         
-        // Check for flank attack opportunities
-        const flankDirections = [
-          { dx: -1, dy: 0 }, { dx: 1, dy: 0 },   // left/right
-          { dx: 0, dy: -1 }, { dx: 0, dy: 1 }    // up/down
-        ];
+        // Mobility score - count available moves
+        const availableMoves = countAvailableMoves(G, block, playerID);
+        score += availableMoves * 10;
         
-        for (const dir of flankDirections) {
-          const sideX = block.x + dir.dx;
-          const sideY = block.y + dir.dy;
-          
-          const enemyBlock = findEnemyAt(G, playerID, sideX, sideY);
-          if (enemyBlock) {
-            // Check if we can pivot to attack
-            const canPivotToAttack = (
-              (dir.dx !== 0 && (block.direction === 'up' || block.direction === 'down')) ||
-              (dir.dy !== 0 && (block.direction === 'left' || block.direction === 'right'))
-            );
-            
-            if (canPivotToAttack) {
-              // Reward being in flank position
-              score += 75;
-            }
-          }
-        }
-        
-        // Check for L formations with other pieces
-        for (let j = i + 1; j < blocks.length; j++) {
-          const otherBlock = blocks[j];
-          const dx = otherBlock.x - block.x;
-          const dy = otherBlock.y - block.y;
-          
-          // If blocks are positioned in L shape
-          if (Math.abs(dx) === 1 && Math.abs(dy) === 1) {
-            // Check if both pieces are facing to form attack pattern
-            const formingAttackPattern = (
-              (isVertical(block.direction) && isHorizontal(otherBlock.direction)) ||
-              (isHorizontal(block.direction) && isVertical(otherBlock.direction))
-            );
-            
-            if (formingAttackPattern) {
-              // Reward coordinated positioning
-              score += 50;
-              
-              // Extra reward if enemy piece is nearby
-              if (enemyNearby(G, playerID, block.x, block.y, otherBlock.x, otherBlock.y)) {
-                score += 25;
-              }
-            }
-          }
+        // When few pieces remain, prioritize safety
+        if (blocks.length <= 2) {
+          // Reward staying away from enemy pieces
+          const nearestEnemyDist = findNearestEnemyDistance(G, block, playerID);
+          score += nearestEnemyDist * 30; // Reward being further from enemies
         }
       }
-    } else {
-      // Penalty for enemy blocks
-      score -= blocks.length * 100;
     }
   }
   
@@ -543,18 +579,82 @@ function evaluateBoard(G: GameState, ctx: any, playerID: string): number {
 }
 
 /**
- * MCTS-based AI bot that enumerates multi-move turn sequences instead of single moves.
- * This should produce more sophisticated multi-step tactics.
+ * Helper to count available moves for a piece
+ */
+function countAvailableMoves(G: GameState, block: Block, playerID: string): number {
+  let count = 0;
+  const directions = [
+    { dx: 0, dy: -1 }, { dx: 0, dy: 1 },
+    { dx: -1, dy: 0 }, { dx: 1, dy: 0 }
+  ];
+  
+  // Count possible steps
+  for (const dir of directions) {
+    const newX = block.x + dir.dx;
+    const newY = block.y + dir.dy;
+    if (newX >= 0 && newX < G.boardSize && newY >= 0 && newY < G.boardSize) {
+      const occupant = findBlockOwner(G, newX, newY);
+      if (!occupant || occupant.pID !== playerID) {
+        count++;
+      }
+    }
+  }
+  
+  // Add pivots (always 2 possible unless blocked)
+  count += 2;
+  
+  return count;
+}
+
+/**
+ * Check if a piece is blocked by friendly pieces
+ */
+function isBlockedByFriendly(G: GameState, block: Block, playerID: string): boolean {
+  const dx = block.direction === 'left' ? -1 : block.direction === 'right' ? 1 : 0;
+  const dy = block.direction === 'up' ? -1 : block.direction === 'down' ? 1 : 0;
+  
+  // Check square in front
+  const frontX = block.x + dx;
+  const frontY = block.y + dy;
+  
+  if (frontX >= 0 && frontX < G.boardSize && frontY >= 0 && frontY < G.boardSize) {
+    const occupant = findBlockOwner(G, frontX, frontY);
+    if (occupant && occupant.pID === playerID) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// Helper function to find distance to nearest enemy piece
+function findNearestEnemyDistance(G: GameState, block: Block, playerID: string): number {
+  let minDist = G.boardSize * 2; // Initialize to maximum possible distance
+  
+  for (const pID of Object.keys(G.blocks)) {
+    if (pID !== playerID) {
+      for (const enemyBlock of G.blocks[pID]) {
+        if (enemyBlock.x >= 0 && enemyBlock.y >= 0) {
+          const dist = Math.abs(block.x - enemyBlock.x) + Math.abs(block.y - enemyBlock.y);
+          minDist = Math.min(minDist, dist);
+        }
+      }
+    }
+  }
+  
+  return minDist;
+}
+
+/**
+ * Enhanced MCTS-based AI bot with improved evaluation,
+ * move pruning, and opening book integration
  */
 export class FlankBot extends MCTSBot {
   constructor() {
     super({
       game: FlankGame,
-      // Use our improved enumerator that returns the entire turn's sequence
       enumerate: improvedEnumerator,
       objectives: (G, ctx, playerID) => {
-        // Always return an object with blockAdvantage, but use a checker that always
-        // returns false if playerID is undefined
         const score = playerID ? evaluateBoard(G, ctx, playerID) : -Infinity;
         return {
           blockAdvantage: {
@@ -563,8 +663,8 @@ export class FlankBot extends MCTSBot {
           },
         };
       },
-      // Reduced iterations for better performance while maintaining good play
-      iterations: 2500,
+      iterations: 300,  // Further reduced iterations for stability
+      playoutDepth: 3,  // Reduced depth for more stable endgame
     });
   }
 } 
