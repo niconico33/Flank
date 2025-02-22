@@ -144,57 +144,80 @@ const pivotBlock = (context: any, args: { playerID: string; blockIndex: number; 
 }
 
 const stepBlock = (context: any, args: { playerID: string; blockIndex: number; targetX: number; targetY: number }) => {
-  const { G, events } = context
-  const { playerID, blockIndex, targetX, targetY } = args
-  if (!playerID) return
+  const { G, events } = context;
+  const { playerID, blockIndex, targetX, targetY } = args;
+  if (!playerID) return;
 
-  const block = G.blocks[playerID][blockIndex]
-  if (!block) return
+  const block = G.blocks[playerID][blockIndex];
+  if (!block) return;
 
   // Check adjacency (orthogonal only)
-  const dist = Math.abs(block.x - targetX) + Math.abs(block.y - targetY)
-  if (dist !== 1) return
+  const dist = Math.abs(block.x - targetX) + Math.abs(block.y - targetY);
+  if (dist !== 1) return;
 
   // Record old position for approach vector
-  const dx = targetX - block.x
-  const dy = targetY - block.y
+  const dx = targetX - block.x;
+  const dy = targetY - block.y;
 
   // Check occupant first
-  const occupant = findBlockOwner(G, targetX, targetY)
+  const occupant = findBlockOwner(G, targetX, targetY);
   if (occupant) {
     // Occupant belongs to same player => invalid move
     if (occupant.pID === playerID) {
-      return
+      return;
     }
 
     // Check attack validity
-    const attackerNose = isNose(block.direction, { dx, dy })
-    const defender = G.blocks[occupant.pID][occupant.i]
-    const defenderNose = isNose(defender.direction, { dx: -dx, dy: -dy })
+    const attackerNose = isNose(block.direction, { dx, dy });
+    const defender = G.blocks[occupant.pID][occupant.i];
+    const defenderNose = isNose(defender.direction, { dx: -dx, dy: -dy });
 
     // Only allow nose-on-body attacks
     // Prevent: nose-on-nose, body-on-body, body-on-nose
     if (!attackerNose || defenderNose) {
-      return // Invalid attack, move is prevented
+      return; // Invalid attack, move is prevented
     }
 
     // Valid nose-on-body attack - remove defender and move attacker
-    G.blocks[occupant.pID].splice(occupant.i, 1)
-    block.x = targetX
-    block.y = targetY
+    try {
+      // Move attacker first
+      block.x = targetX;
+      block.y = targetY;
+
+      // Then remove defender
+      G.blocks[occupant.pID].splice(occupant.i, 1);
+
+      // Validate remaining pieces for the opponent
+      const remainingPieces = G.blocks[occupant.pID].filter(
+        b => b.x >= 0 && b.y >= 0 && b.x < G.boardSize && b.y < G.boardSize
+      );
+
+      // If opponent has only one piece left, end their turn immediately
+      if (remainingPieces.length === 1) {
+        if (events?.endTurn) {
+          setTimeout(() => events.endTurn(), 0);
+        }
+      }
+    } catch (error) {
+      console.error('Error in piece capture:', error);
+      // Revert the move if something went wrong
+      block.x -= dx;
+      block.y -= dy;
+      return;
+    }
   } else {
     // No occupant, just move
-    block.x = targetX
-    block.y = targetY
+    block.x = targetX;
+    block.y = targetY;
   }
 
-  G.moveCount++
+  G.moveCount++;
 
   // End turn if move limit reached
   if (G.moveCount >= 3 && events?.endTurn) {
-    events.endTurn()
+    events.endTurn();
   }
-}
+};
 
 const commitTurn = (context: any, args: { 
   turnStartBlocks: Block[],
